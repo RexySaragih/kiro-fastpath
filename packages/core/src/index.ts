@@ -6,6 +6,7 @@ export {
   HARD_MAX_TOP_K,
   INDEXABLE_EXTENSIONS,
   IndexLimits,
+  McpTimeouts,
   type CallEdge,
   type ImportEdge,
   type IndexStats,
@@ -16,7 +17,15 @@ export {
 } from './types.js';
 export { IgnoreMatcher } from './ignore.js';
 export { tokenizeIdentifier, clampTopK, snippetAround } from './tokenize.js';
-export { openDatabase, getMeta, setMeta } from './db/schema.js';
+export {
+  openDatabase,
+  getMeta,
+  setMeta,
+  getSchemaVersion,
+  checkDatabaseIntegrity,
+  CURRENT_SCHEMA_VERSION,
+  SQLITE_BUSY_TIMEOUT_MS,
+} from './db/schema.js';
 export { parseFile, parseTypeScript, parsePython, parseGo } from './parse/extract.js';
 export { parseFileAst, warmParsers } from './parse/treesitter.js';
 export {
@@ -51,6 +60,8 @@ export {
   getEmbedBackend,
   getEmbedDim,
   resetEmbedderForTests,
+  modelCacheDir,
+  minilmWeightsPresent,
   MINILM_DIM,
   MINILM_MODEL,
   type EmbedBackendName,

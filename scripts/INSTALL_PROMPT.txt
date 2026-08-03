@@ -12,7 +12,8 @@ GIT REPO NAME = kiro-fastpath
 - Clone/pull the product repo as kiro-fastpath (not your app repo).
 - Preferred path: ~/kiro-fastpath (or Documents/kiro-fastpath as the clone, then install-home).
 - Zip is OPTIONAL (USB/airgap only).
-- After git pull of kiro-fastpath: npm ci && npm run build, then re-run `use` if agents/hooks changed.
+- After git pull of kiro-fastpath: `fastpath upgrade` then `fastpath rewire --all`
+  (or: npm ci && npm run build, then use/rewire each app).
 - npm package.json name stays "fastpath"; folder/git name is kiro-fastpath.
 
 TWO PATHS — DO NOT MIX THEM UP
@@ -43,16 +44,16 @@ FRESHNESS
 - After kiro-fastpath upgrade: full fastpath index once
 
 MOVED OR NEW MACHINE
-- Hooks/MCP embed absolute paths under FASTPATH_HOME.
-- Relocate home → re-run: fastpath use "$WORKSPACE"
+- Hooks/MCP embed absolute paths + FASTPATH_HOME env.
+- Relocate home → re-run: fastpath rewire --all  (or use "$WORKSPACE")
 
 VERIFY (do not say "use FastPath")
   "Where is RunEngine defined, and who calls performVaultLogin?
    Open at most 3 files, then stop. Don't edit yet."
 
 DEBUG
-- fastpath doctor / doctor --json / home / metrics --summary
-- scripts/OFFICE_RUNBOOK.txt · scripts/SECURITY_NOTES.txt
+- fastpath doctor / doctor --json / home / metrics --summary / repair-native
+- scripts/OFFICE_RUNBOOK.txt · SECURITY_NOTES.txt · SUPPORT_MATRIX.txt
 
 DO NOT
 - Pass app repos to install-home
@@ -76,5 +77,5 @@ C) Verify
    node "$FASTPATH_HOME/packages/cli/dist/index.js" doctor /path/to/your-repo
    Expect: SCOUT READY
 
-HUMAN: Reload Kiro → Workspace → Scout → enable fastpath-auto-context
+HUMAN: Reload Kiro → trust workspace → Workspace → Scout → enable fastpath-auto-context
        Scout: /effort low · Architect: /effort medium

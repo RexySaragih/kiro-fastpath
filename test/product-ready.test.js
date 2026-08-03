@@ -138,10 +138,12 @@ test('doctor --json reports ready shape', () => {
     const json = JSON.parse(doc.stdout);
     assert.equal(json.ready, true);
     assert.ok(Array.isArray(json.issues));
+    assert.ok(Array.isArray(json.notes));
     assert.ok(json.agentsIdeCompatible);
     assert.ok(json.hookEnabled);
     assert.ok(json.version);
     assert.ok(json.home);
+    assert.equal(json.integrityOk, true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -154,4 +156,5 @@ test('pack-release stage would include CLI dist (dry structure check)', () => {
   assert.ok(existsSync(join(root, 'scripts/OFFICE_RUNBOOK.txt')));
   assert.ok(existsSync(join(root, 'scripts/SECURITY_NOTES.txt')));
   assert.ok(existsSync(join(root, 'scripts/INSTALL_PROMPT.txt')));
+  assert.ok(existsSync(join(root, 'scripts/SUPPORT_MATRIX.txt')));
 });

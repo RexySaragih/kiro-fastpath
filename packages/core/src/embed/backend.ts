@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { embedText, HASH_EMBED_DIM, l2Normalize } from './hash.js';
@@ -23,10 +23,32 @@ function resolveRequestedBackend(): EmbedBackendName {
   return 'minilm'; // auto → prefer real model, fall back in ensureEmbedder
 }
 
-function cacheDir(): string {
+export function modelCacheDir(): string {
   const override = process.env.FASTPATH_MODEL_CACHE?.trim();
   if (override) return override;
   return join(homedir(), '.fastpath', 'models');
+}
+
+function cacheDir(): string {
+  return modelCacheDir();
+}
+
+/** True when Hugging Face cache looks like MiniLM weights were downloaded. */
+export function minilmWeightsPresent(): boolean {
+  const dir = modelCacheDir();
+  if (!existsSync(dir)) return false;
+  const needle = 'all-MiniLM-L6-v2';
+  try {
+    for (const name of readdirSync(dir)) {
+      if (name.includes(needle) || name.includes('Xenova')) return true;
+    }
+    // Nested HF hub layout
+    const hub = join(dir, 'Xenova');
+    if (existsSync(hub)) return true;
+  } catch {
+    return false;
+  }
+  return false;
 }
 
 async function loadMiniLm(): Promise<EmbedFn> {

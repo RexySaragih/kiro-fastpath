@@ -1,6 +1,6 @@
 {
   "name": "fastpath",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Kiro Fast-Path: warm local hybrid code index + thin MCP + Scout/Architect agent pack",
   "type": "module",
@@ -12,6 +12,7 @@
     "test": "npm run build && FASTPATH_EMBED=hash FASTPATH_RERANK=off FASTPATH_PARSER=legacy FASTPATH_ALLOW_HASH=1 node --test test/**/*.test.js",
     "test:connections": "npm run build && FASTPATH_EMBED=hash FASTPATH_RERANK=off FASTPATH_PARSER=legacy node packages/mcp-server/dist/scripts/test-connections.js",
     "eval": "npm run build && FASTPATH_EMBED=hash FASTPATH_RERANK=off FASTPATH_PARSER=legacy node packages/cli/dist/index.js eval",
+    "eval:office": "npm run build && FASTPATH_EMBED=hash FASTPATH_RERANK=off FASTPATH_PARSER=legacy node packages/cli/dist/index.js eval --office",
     "fastpath": "node packages/cli/dist/index.js",
     "mcp": "node packages/mcp-server/dist/index.js",
     "install:target": "bash scripts/install-target.sh",

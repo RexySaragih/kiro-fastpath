@@ -48,9 +48,9 @@ test('install-kiro writes valid hook JSON and wired agents', () => {
       join(dir, 'src/hello.ts'),
       'export function hello() { return greet(); }\nfunction greet() { return 1; }\n',
     );
-    // Legacy names must be removed on install
     mkdirSync(join(dir, '.kiro/agents'), { recursive: true });
     writeFileSync(join(dir, '.kiro/agents/surgical.md'), 'legacy\n');
+    writeFileSync(join(dir, '.kiro/agents/Scout.json'), '{"name":"legacy"}\n');
 
     const init = spawnSync(process.execPath, [cli, 'init', dir], {
       encoding: 'utf8',
@@ -74,33 +74,37 @@ test('install-kiro writes valid hook JSON and wired agents', () => {
     const hook = JSON.parse(readFileSync(hookPath, 'utf8'));
     assert.equal(hook.hooks[0].trigger, 'UserPromptSubmit');
     assert.match(hook.hooks[0].action.command, /prompt-inject/);
+    assert.match(hook.hooks[0].action.command, /FASTPATH_HOME=/);
     assert.equal(readFileSync(hookPath, 'utf8').includes('__FASTPATH_'), false);
 
     const scout = readFileSync(join(dir, '.kiro/agents/Scout.md'), 'utf8');
     assert.match(scout, /@fastpath/);
     assert.doesNotMatch(scout, /__FASTPATH_/);
     assert.match(scout, /mcpServers:/);
+    assert.match(scout, /FASTPATH_HOME:/);
+    assert.match(scout, /timeout:\s*\d+/);
+    assert.match(scout, /requestTimeout:\s*\d+/);
+    assert.match(scout, /permissions:/);
     assert.doesNotMatch(scout, /\ballowedTools\b/);
     assert.doesNotMatch(scout, /\bincludeMcpJson\b/);
     assert.doesNotMatch(scout, /\btoolsSettings\b/);
     assert.match(scout, /name:\s*Scout/);
     assert.match(scout, /tools:\s*\["read",\s*"write",\s*"@fastpath"\]/);
 
-    const scoutJsonRaw = readFileSync(join(dir, '.kiro/agents/Scout.json'), 'utf8');
-    assert.doesNotMatch(scoutJsonRaw, /\ballowedTools\b/);
-    assert.doesNotMatch(scoutJsonRaw, /\bincludeMcpJson\b/);
-    const scoutJson = JSON.parse(scoutJsonRaw);
-    assert.ok(scoutJson.mcpServers.fastpath);
-    assert.equal(scoutJson.mcpServers.fastpath.env.FASTPATH_EMBED, 'minilm');
-    assert.equal(scoutJson.mcpServers.fastpath.env.FASTPATH_RERANK, 'on');
-    assert.ok(scoutJson.hooks.userPromptSubmit);
-    assert.match(scout, /FASTPATH_EMBED:\s*"minilm"/);
+    assert.equal(existsSync(join(dir, '.kiro/agents/Scout.json')), false);
 
     const architect = readFileSync(join(dir, '.kiro/agents/Architect.md'), 'utf8');
     assert.doesNotMatch(architect, /\ballowedTools\b/);
     assert.doesNotMatch(architect, /\bincludeMcpJson\b/);
     assert.match(architect, /name:\s*Architect/);
+    assert.match(architect, /FASTPATH_HOME:/);
     assert.equal(existsSync(join(dir, '.kiro/agents/surgical.md')), false);
+
+    const mcp = JSON.parse(readFileSync(join(dir, '.kiro/settings/mcp.json'), 'utf8'));
+    assert.ok(mcp.mcpServers.fastpath.env.FASTPATH_HOME);
+    assert.equal(mcp.mcpServers.fastpath.env.FASTPATH_EMBED, 'minilm');
+    assert.ok(mcp.mcpServers.fastpath.timeout >= 60000);
+    assert.ok(mcp.mcpServers.fastpath.requestTimeout >= 180000);
 
     const doctor = spawnSync(process.execPath, [cli, 'doctor', dir], {
       encoding: 'utf8',
@@ -110,6 +114,8 @@ test('install-kiro writes valid hook JSON and wired agents', () => {
     assert.match(doctor.stdout, /SCOUT READY/);
     assert.match(doctor.stdout, /Call graph table ready/);
     assert.match(doctor.stdout, /Agent pack IDE-compatible/);
+    assert.match(doctor.stdout, /Search smoke OK/);
+    assert.match(doctor.stdout, /Architect agent installed/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

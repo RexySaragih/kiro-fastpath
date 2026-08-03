@@ -88,3 +88,18 @@ export function recordWorkspaceWired(workspace: string): void {
   cfg.lastWorkspace = resolve(workspace);
   saveConfig(cfg);
 }
+
+export function listWiredWorkspaces(): string[] {
+  return Object.keys(loadConfig().workspaces).sort();
+}
+
+export function unrecordWorkspace(workspace: string): void {
+  const cfg = loadConfig();
+  const key = resolve(workspace);
+  delete cfg.workspaces[key];
+  if (cfg.lastWorkspace === key) {
+    const remaining = Object.keys(cfg.workspaces);
+    cfg.lastWorkspace = remaining[0] ?? null;
+  }
+  saveConfig(cfg);
+}

@@ -1,7 +1,7 @@
 FastPath security notes
 =======================
 
-npm audit (as of 0.3.0 packaging): 4 high, 0 critical
+npm audit (as of 1.0.0 packaging): re-check with `npm audit` each release; CI gates critical only
 
 Chain:
   @huggingface/transformers

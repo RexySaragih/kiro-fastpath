@@ -8,10 +8,13 @@ mcpServers:
     command: node
     args: ["__FASTPATH_MCP__"]
     env:
+      FASTPATH_HOME: "__FASTPATH_HOME__"
       FASTPATH_WORKSPACE: "__FASTPATH_WORKSPACE__"
       FASTPATH_EMBED: "minilm"
       FASTPATH_RERANK: "on"
     disabled: false
+    timeout: __MCP_TIMEOUT__
+    requestTimeout: __MCP_REQUEST_TIMEOUT__
     autoApprove:
       - search
       - symbol

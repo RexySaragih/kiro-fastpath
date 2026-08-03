@@ -3,6 +3,12 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { HASH_EMBED_DIM } from '../embed/hash.js';
 
+/** Bump when on-disk shape changes; doctor refuses silent lies. */
+export const CURRENT_SCHEMA_VERSION = 4;
+
+/** Wait this long on SQLITE_BUSY before failing (watch + inject + index). */
+export const SQLITE_BUSY_TIMEOUT_MS = 5000;
+
 export interface OpenDatabaseOptions {
   /** When false, refuse to create a missing DB (status/doctor/search). Default true. */
   create?: boolean;
@@ -23,6 +29,7 @@ export function openDatabase(
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.pragma('synchronous = NORMAL');
+  db.pragma(`busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
   migrate(db);
   return db;
 }
@@ -121,7 +128,39 @@ function migrate(db: Database.Database): void {
 
   const existingDim = getMeta(db, 'embed_dim');
   if (!existingDim) setMeta(db, 'embed_dim', String(HASH_EMBED_DIM));
-  setMeta(db, 'schema_version', '4');
+
+  const verRaw = getMeta(db, 'schema_version');
+  const ver = verRaw ? Number(verRaw) : 0;
+  if (!verRaw || Number.isNaN(ver)) {
+    setMeta(db, 'schema_version', String(CURRENT_SCHEMA_VERSION));
+  } else if (ver < CURRENT_SCHEMA_VERSION) {
+    // Step migrations go here when CURRENT_SCHEMA_VERSION increases.
+    setMeta(db, 'schema_version', String(CURRENT_SCHEMA_VERSION));
+  }
+  // If ver > CURRENT_SCHEMA_VERSION, leave as-is — doctor will flag.
+}
+
+export function getSchemaVersion(db: Database.Database): number {
+  const raw = getMeta(db, 'schema_version');
+  if (!raw) return 0;
+  const n = Number(raw);
+  return Number.isNaN(n) ? 0 : n;
+}
+
+export function checkDatabaseIntegrity(db: Database.Database): {
+  ok: boolean;
+  detail: string;
+} {
+  try {
+    const rows = db.pragma('integrity_check') as Array<{ integrity_check: string }>;
+    const detail = rows.map((r) => r.integrity_check).join('; ') || 'unknown';
+    return { ok: detail === 'ok', detail };
+  } catch (err) {
+    return {
+      ok: false,
+      detail: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 export function setMeta(db: Database.Database, key: string, value: string): void {

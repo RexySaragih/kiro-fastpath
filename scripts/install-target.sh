@@ -165,17 +165,21 @@ CLI:       node $CLI
 
 Kiro checklist:
   1) Reload window
-  2) Agent picker → Workspace → Scout
-  3) Hook UI → enable fastpath-auto-context
-  4) Effort: Scout → /effort low · Architect → /effort medium
+  2) Trust workspace if prompted
+  3) Agent picker → Workspace → Scout
+  4) Hook UI → enable fastpath-auto-context
+  5) Effort: Scout → /effort low · Architect → /effort medium
 
 Aliases (~/.zshrc):
   export FASTPATH_HOME='$FASTPATH_HOME'
   alias fastpath='node "\$FASTPATH_HOME/packages/cli/dist/index.js"'
 
+After FastPath upgrade: fastpath upgrade && fastpath rewire --all
 After big git pulls: fastpath index --git
 Long sessions: fastpath watch
+Corrupt index: fastpath index --rebuild
 Runbook: $FASTPATH_HOME/scripts/OFFICE_RUNBOOK.txt
+Support: $FASTPATH_HOME/scripts/SUPPORT_MATRIX.txt
 ────────────────────────────────────────────────────────────
 EOF
 

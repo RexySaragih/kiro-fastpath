@@ -78,6 +78,17 @@ export const IndexLimits = {
   RERANK_CANDIDATES: 20,
   INJECT_DELTA_BUDGET_MS: 2000,
   INJECT_RETRIEVE_BUDGET_MS: 3000,
+  /** Doctor warns when indexed file count exceeds this (tune via FASTPATH_WARN_FILES). */
+  WARN_FILE_COUNT: 50_000,
+  /** Doctor/metrics: inject hit-rate below this (0–1) after enough samples. */
+  INJECT_HIT_RATE_FLOOR: 0.25,
+  INJECT_HIT_RATE_MIN_SAMPLES: 10,
+} as const;
+
+/** MCP stdio timeouts written into agent/mcp.json (Kiro defaults are lower for cold MiniLM). */
+export const McpTimeouts = {
+  CONNECT_MS: 60_000,
+  REQUEST_MS: 180_000,
 } as const;
 
 export const DEFAULT_IGNORE_DIRS = new Set([

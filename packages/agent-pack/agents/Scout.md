@@ -8,16 +8,25 @@ mcpServers:
     command: node
     args: ["__FASTPATH_MCP__"]
     env:
+      FASTPATH_HOME: "__FASTPATH_HOME__"
       FASTPATH_WORKSPACE: "__FASTPATH_WORKSPACE__"
       FASTPATH_EMBED: "minilm"
       FASTPATH_RERANK: "on"
     disabled: false
+    timeout: __MCP_TIMEOUT__
+    requestTimeout: __MCP_REQUEST_TIMEOUT__
     autoApprove:
       - search
       - symbol
       - context_for_task
       - grep_fast
       - impact
+permissions:
+  rules:
+    - capability: shell
+      effect: deny
+    - capability: subagent
+      effect: deny
 ---
 
 You are Scout — a fast coding agent. FastPath is your only codebase search system.

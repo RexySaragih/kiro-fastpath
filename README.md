@@ -1,10 +1,12 @@
-# FastPath v0.3
+# FastPath v1.0
 
 Warm local hybrid code index + thin MCP + **Scout** / **Architect** agents for AWS Kiro (IDE and CLI).
 
 Makes Kiro **retrieve → act** instead of packing the workspace and over-exploring.
 
 > Git repo: **kiro-fastpath**. Clone into `~/kiro-fastpath` on each machine. Not an `npx`-only MCP — needs a local home (index, MiniLM, inject hook, agents).
+
+Support matrix / release gate: `scripts/SUPPORT_MATRIX.txt`, `scripts/RELEASE_GATE.txt`, `scripts/CHANGELOG.txt`.
 
 ## Architecture
 
@@ -109,9 +111,14 @@ Do not add CLI-only fields (`allowedTools`, `includeMcpJson`) to agent markdown 
 
 ```bash
 fastpath init|index|watch|status|doctor|warm|eval [workspace]
-fastpath index [workspace] --git          # git-changed files only
-fastpath doctor [workspace] [--json]
+fastpath index [workspace] --git|--rebuild
+fastpath doctor [workspace] [--json]      # runtime smoke + integrity
 fastpath install-kiro|repair-kiro|use [workspace]
+fastpath rewire [--all] [workspace]       # refresh abs paths after upgrade
+fastpath unwire [workspace] [--purge-index]
+fastpath upgrade                          # pull + build FASTPATH_HOME
+fastpath repair-native                    # after Node upgrade
+fastpath eval [--office]
 fastpath home|version|metrics [--summary]
 ```
 
@@ -171,9 +178,10 @@ Expect doctor: **SCOUT READY**.
 ## Residual risks
 
 - Hash embeddings are weaker than MiniLM for natural-language queries; office path uses MiniLM.
-- Non-TS parsers are best-effort.
+- Non-TS parsers are best-effort (see `scripts/SUPPORT_MATRIX.txt`).
 - Kiro may still inject workspace file trees (product behavior) — keep ignores strict and MCP lean.
 - Soft steering cannot force tool use — rely on auto-inject + Scout binding.
+- Effort is session-level in Kiro (not per-agent) — use `/effort` when switching agents.
 - Some transitive `npm audit` highs under `@huggingface/transformers` — see `scripts/SECURITY_NOTES.txt`.
 
 ## License
