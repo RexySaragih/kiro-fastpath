@@ -3,7 +3,7 @@
 #
 # Usage:
 #   ./scripts/install-target.sh /path/to/your/repo
-#   FASTPATH_HOME=~/kiro-fastpath ./scripts/install-target.sh /path/to/krom-falcon
+#   FASTPATH_HOME=~/kiro-fastpath ./scripts/install-target.sh /path/to/your-repo
 #   ./scripts/install-target.sh --skip-warm /path/to/your/repo
 #   ./scripts/install-target.sh --hash /path/to/your/repo   # CI/offline (no MiniLM)
 #
@@ -163,10 +163,11 @@ FastPath:  $FASTPATH_HOME
 Workspace: $WORKSPACE
 CLI:       node $CLI
 
-Kiro checklist (3 steps):
+Kiro checklist:
   1) Reload window
   2) Agent picker → Workspace → Scout
   3) Hook UI → enable fastpath-auto-context
+  4) Effort: Scout → /effort low · Architect → /effort medium
 
 Aliases (~/.zshrc):
   export FASTPATH_HOME='$FASTPATH_HOME'

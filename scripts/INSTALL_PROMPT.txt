@@ -17,16 +17,17 @@ GIT REPO NAME = kiro-fastpath
 
 TWO PATHS — DO NOT MIX THEM UP
 1) install-home.sh ARG = kiro-fastpath checkout (the product)
-2) install-target.sh ARG = your app repo (e.g. krom-falcon)
-- Never pass krom-falcon (or README.md) to install-home.sh.
+2) install-target.sh ARG = your application repo
+- Never pass your app repo (or a README.md file) to install-home.sh.
 
 ONE HOME, MANY REPOS
 - FASTPATH_HOME (default ~/kiro-fastpath) = the product install.
 - Each project keeps its own .fastpath/index.db and .kiro/ wiring.
 
 AGENTS
-- Scout = daily default (locate→edit, max ~3 files, no shell/subagent).
-- Architect = bigger multi-file work (+ shell/subagent); impact before renames.
+- Scout = daily default — model claude-sonnet-4.6, session /effort low.
+- Architect = bigger work — model claude-sonnet-4.6, session /effort medium.
+- Effort is NOT per-agent in Kiro; run /effort when switching agents.
 - NEVER put allowedTools / includeMcpJson / toolsSettings in agent files —
   Kiro IDE silently drops the agent. doctor must say "Agent pack IDE-compatible".
 
@@ -67,12 +68,13 @@ A) Home (once) — product repo kiro-fastpath
    # or already cloned e.g. ~/Documents/kiro-fastpath:
    bash /path/to/kiro-fastpath/scripts/install-home.sh /path/to/kiro-fastpath
 
-B) Wire APP repo (e.g. krom-falcon)
+B) Wire APP repo
    export FASTPATH_HOME=~/kiro-fastpath
-   bash "$FASTPATH_HOME/scripts/install-target.sh" /path/to/krom-falcon
+   bash "$FASTPATH_HOME/scripts/install-target.sh" /path/to/your-repo
 
 C) Verify
-   node "$FASTPATH_HOME/packages/cli/dist/index.js" doctor /path/to/krom-falcon
+   node "$FASTPATH_HOME/packages/cli/dist/index.js" doctor /path/to/your-repo
    Expect: SCOUT READY
 
 HUMAN: Reload Kiro → Workspace → Scout → enable fastpath-auto-context
+       Scout: /effort low · Architect: /effort medium

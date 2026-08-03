@@ -6,7 +6,7 @@
 #   bash scripts/install-home.sh /path/to/kiro-fastpath-0.3.0.zip
 #   FASTPATH_HOME=~/kiro-fastpath bash scripts/install-home.sh ./kiro-fastpath
 #
-# ARG is the kiro-fastpath product repo (has packages/cli) — NOT your app repo (e.g. krom-falcon).
+# ARG is the kiro-fastpath product repo (has packages/cli) — NOT your application repo.
 #
 set -euo pipefail
 
@@ -16,7 +16,7 @@ info() { echo "==> $*"; }
 SRC="${1:-}"
 [[ -n "$SRC" ]] || die "usage: $0 <kiro-fastpath-checkout-dir|release.zip>
   Example: $0 /Users/you/Documents/kiro-fastpath
-  Do NOT pass your app repo (krom-falcon). Wire apps with install-target.sh next."
+  Do NOT pass your application repo. Wire apps with install-target.sh next."
 
 FASTPATH_HOME="${FASTPATH_HOME:-$HOME/kiro-fastpath}"
 FASTPATH_HOME="$(cd "$(dirname "$FASTPATH_HOME")" && pwd)/$(basename "$FASTPATH_HOME")"
@@ -33,10 +33,10 @@ assert_fastpath_tree() {
   local name
   name="$(node -p "try{require('$dir/package.json').name}catch{''}")"
   [[ "$name" == "fastpath" ]] ||   die "not a kiro-fastpath checkout (package.json name='$name', expected 'fastpath'): $dir
-  You probably passed your app repo. Use:
+  You probably passed your application repo. Use:
     $0 /path/to/kiro-fastpath
   Then wire the app with:
-    bash \"\$HOME/kiro-fastpath/scripts/install-target.sh\" /path/to/krom-falcon"
+    bash \"\$HOME/kiro-fastpath/scripts/install-target.sh\" /path/to/your-repo"
   [[ -d "$dir/packages/cli" && -d "$dir/packages/core" ]] || \
     die "not a FastPath monorepo (missing packages/cli or packages/core): $dir"
 }
@@ -125,5 +125,5 @@ info "FastPath home ready: $FASTPATH_HOME (v$VERSION)"
 echo ""
 echo "Next — wire your APP repo (not FastPath):"
 echo "  export FASTPATH_HOME='$FASTPATH_HOME'"
-echo "  bash \"\$FASTPATH_HOME/scripts/install-target.sh\" /path/to/krom-falcon"
-echo "  # or: node \"\$FASTPATH_HOME/packages/cli/dist/index.js\" use /path/to/krom-falcon"
+echo "  bash \"\$FASTPATH_HOME/scripts/install-target.sh\" /path/to/your-repo"
+echo "  # or: node \"\$FASTPATH_HOME/packages/cli/dist/index.js\" use /path/to/your-repo"

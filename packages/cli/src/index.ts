@@ -76,10 +76,11 @@ function workspaceFromArgs(args: string[]): string {
 
 function printKiroChecklist(): void {
   console.log('');
-  console.log('Kiro checklist (3 steps):');
+  console.log('Kiro checklist:');
   console.log('  1) Reload window (Cmd+Shift+P → Developer: Reload Window)');
-  console.log('  2) Chat agent picker → Workspace → Scout');
+  console.log('  2) Chat agent picker → Workspace → Scout (daily) or Architect');
   console.log('  3) Hook UI → enable fastpath-auto-context');
+  console.log('  4) Effort: Scout → /effort low · Architect → /effort medium');
 }
 
 function estimateTokens(text: string): number {

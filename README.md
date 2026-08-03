@@ -51,12 +51,12 @@ bash ~/kiro-fastpath/scripts/install-home.sh ~/kiro-fastpath
 
 `install-home` takes the **kiro-fastpath** checkout — not your app repo.
 
-**Per project workspace** (e.g. krom-falcon):
+**Per project workspace:**
 
 ```bash
 export FASTPATH_HOME=~/kiro-fastpath
-bash "$FASTPATH_HOME/scripts/install-target.sh" /path/to/krom-falcon
-# or: node "$FASTPATH_HOME/packages/cli/dist/index.js" use /path/to/krom-falcon
+bash "$FASTPATH_HOME/scripts/install-target.sh" /path/to/your-repo
+# or: node "$FASTPATH_HOME/packages/cli/dist/index.js" use /path/to/your-repo
 ```
 
 **In Kiro:**
@@ -71,9 +71,9 @@ bash "$FASTPATH_HOME/scripts/install-target.sh" /path/to/krom-falcon
 ```bash
 cd ~/kiro-fastpath && git pull && npm ci && npm run build
 # re-wire if agents/hooks/templates changed:
-node packages/cli/dist/index.js use /path/to/krom-falcon
+node packages/cli/dist/index.js use /path/to/your-repo
 # after a large pull of the *project* repo:
-node packages/cli/dist/index.js index --git /path/to/krom-falcon
+node packages/cli/dist/index.js index --git /path/to/your-repo
 ```
 
 Docs for agents / first install:
@@ -96,10 +96,12 @@ bash scripts/install-target.sh /path/to/your/repo
 
 ## Agents
 
-| Agent | Use for |
-|-------|---------|
-| **Scout** | Daily coding — locate → edit, max ~3 files |
-| **Architect** | Multi-file features (+ shell / subagent) |
+| Agent | Model | Effort (session) | Use for |
+|-------|-------|------------------|---------|
+| **Scout** | `claude-sonnet-4.6` | `/effort low` | Daily coding — locate → edit, max ~3 files |
+| **Architect** | `claude-sonnet-4.6` | `/effort medium` | Multi-file features (+ shell / subagent) |
+
+Kiro binds effort per session/model, not per agent — set `/effort` when you switch agents.
 
 Do not add CLI-only fields (`allowedTools`, `includeMcpJson`) to agent markdown — Kiro IDE will hide the agent.
 
@@ -126,7 +128,7 @@ Env (also set by install into MCP/hook):
 
 Optional ANN: `npm install sqlite-vec -w @fastpath/core` then re-index.
 
-### MCP shape (written by install — do not hand-copy ADATA paths)
+### MCP shape (written by install — do not hand-copy machine-specific paths)
 
 ```json
 {
