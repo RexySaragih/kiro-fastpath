@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="brand/fastpath-logo.png" alt="FastPath — Scout finds the path, Architect frames it" width="420" />
+</p>
+
 # FastPath v1.0
 
 Warm local hybrid code index + thin MCP + **Scout** / **Architect** agents for AWS Kiro (IDE and CLI).
