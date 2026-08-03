@@ -3,23 +3,26 @@ FastPath Office Runbook (v0.3)
 
 1) Install FastPath home (once per machine)
 ------------------------------------------
-Default location: ~/fastpath
+Git repo name: kiro-fastpath
+Default FASTPATH_HOME: ~/kiro-fastpath
 
-From release zip (office):
-  bash scripts/install-home.sh /path/to/fastpath-0.3.0-*.zip
+From git:
+  git clone <kiro-fastpath-url> ~/kiro-fastpath
+  bash ~/kiro-fastpath/scripts/install-home.sh ~/kiro-fastpath
 
-From git (your Mac):
-  git clone <repo> ~/fastpath
-  bash ~/fastpath/scripts/install-home.sh ~/fastpath
+If already cloned elsewhere (e.g. Documents):
+  bash ~/Documents/kiro-fastpath/scripts/install-home.sh ~/Documents/kiro-fastpath
+  # copies/syncs into ~/kiro-fastpath by default
 
-Or set: export FASTPATH_HOME=/custom/path
+install-home ARG = kiro-fastpath only — NEVER your app (krom-falcon).
 
 
-2) Wire a project workspace
----------------------------
-  bash "$FASTPATH_HOME/scripts/install-target.sh" /path/to/repo
-  # or after home is ready:
-  node "$FASTPATH_HOME/packages/cli/dist/index.js" use /path/to/repo
+2) Wire a project workspace (your app)
+--------------------------------------
+  export FASTPATH_HOME=~/kiro-fastpath
+  bash "$FASTPATH_HOME/scripts/install-target.sh" /path/to/krom-falcon
+  # or:
+  node "$FASTPATH_HOME/packages/cli/dist/index.js" use /path/to/krom-falcon
 
 This creates .fastpath/index.db + .kiro agents/hooks/mcp for that repo.
 

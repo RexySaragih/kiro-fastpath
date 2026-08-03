@@ -14,16 +14,20 @@ export interface FastpathConfig {
   lastWorkspace: string | null;
 }
 
+/** Default clone/install dir — matches git repo name `kiro-fastpath`. */
 export function defaultFastpathHome(): string {
   const env = process.env.FASTPATH_HOME?.trim();
   if (env) return resolve(env);
-  return join(homedir(), 'fastpath');
+  return join(homedir(), 'kiro-fastpath');
 }
 
 export function resolveFastpathHome(): string {
   const preferred = defaultFastpathHome();
   if (existsSync(join(preferred, 'packages/cli/dist/index.js'))) return preferred;
-  // Dev / ADATA checkout: use package root if it looks like FastPath
+  // Legacy default from early 0.3 installs
+  const legacy = join(homedir(), 'fastpath');
+  if (existsSync(join(legacy, 'packages/cli/dist/index.js'))) return legacy;
+  // Dev checkout: use package root if it looks like FastPath
   if (existsSync(join(PACKAGE_ROOT, 'packages/cli/dist/index.js'))) return PACKAGE_ROOT;
   return preferred;
 }

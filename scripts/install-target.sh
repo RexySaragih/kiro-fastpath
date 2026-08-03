@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# FastPath — wire a Kiro workspace using FASTPATH_HOME (default ~/fastpath).
+# FastPath — wire a Kiro workspace using FASTPATH_HOME (default ~/kiro-fastpath).
 #
 # Usage:
 #   ./scripts/install-target.sh /path/to/your/repo
-#   FASTPATH_HOME=~/fastpath ./scripts/install-target.sh /path/to/your/repo
+#   FASTPATH_HOME=~/kiro-fastpath ./scripts/install-target.sh /path/to/krom-falcon
 #   ./scripts/install-target.sh --skip-warm /path/to/your/repo
 #   ./scripts/install-target.sh --hash /path/to/your/repo   # CI/offline (no MiniLM)
 #
@@ -48,16 +48,17 @@ resolve_home() {
     cd "$FASTPATH_HOME" && pwd
     return
   fi
-  local def="$HOME/fastpath"
-  if [[ -f "$def/packages/cli/dist/index.js" ]]; then
-    cd "$def" && pwd
-    return
-  fi
+  for def in "$HOME/kiro-fastpath" "$HOME/fastpath"; do
+    if [[ -f "$def/packages/cli/dist/index.js" ]]; then
+      cd "$def" && pwd
+      return
+    fi
+  done
   if [[ -f "$SCRIPT_ROOT/packages/cli/dist/index.js" || -f "$SCRIPT_ROOT/package.json" ]]; then
     echo "$SCRIPT_ROOT"
     return
   fi
-  die "FASTPATH_HOME not found. Run: bash scripts/install-home.sh <zip|checkout>"
+  die "FASTPATH_HOME not found. Run: bash scripts/install-home.sh /path/to/kiro-fastpath"
 }
 
 FASTPATH_HOME="$(resolve_home)"

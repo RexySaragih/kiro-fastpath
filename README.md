@@ -4,7 +4,7 @@ Warm local hybrid code index + thin MCP + **Scout** / **Architect** agents for A
 
 Makes Kiro **retrieve → act** instead of packing the workspace and over-exploring.
 
-> **Clone this repo** into `~/fastpath` on each machine. This is not an `npx`-only MCP — it needs a local home (index, MiniLM models, inject hook, agents).
+> Git repo: **kiro-fastpath**. Clone into `~/kiro-fastpath` on each machine. Not an `npx`-only MCP — needs a local home (index, MiniLM, inject hook, agents).
 
 ## Architecture
 
@@ -45,16 +45,18 @@ Indexing alone does nothing. Kiro only uses FastPath when all three exist:
 **Once per machine** (office or home):
 
 ```bash
-git clone <this-repo-url> ~/fastpath
-bash ~/fastpath/scripts/install-home.sh ~/fastpath
+git clone <kiro-fastpath-url> ~/kiro-fastpath
+bash ~/kiro-fastpath/scripts/install-home.sh ~/kiro-fastpath
 ```
 
-**Per project workspace:**
+`install-home` takes the **kiro-fastpath** checkout — not your app repo.
+
+**Per project workspace** (e.g. krom-falcon):
 
 ```bash
-export FASTPATH_HOME=~/fastpath
-bash "$FASTPATH_HOME/scripts/install-target.sh" /path/to/your/repo
-# or: node "$FASTPATH_HOME/packages/cli/dist/index.js" use /path/to/your/repo
+export FASTPATH_HOME=~/kiro-fastpath
+bash "$FASTPATH_HOME/scripts/install-target.sh" /path/to/krom-falcon
+# or: node "$FASTPATH_HOME/packages/cli/dist/index.js" use /path/to/krom-falcon
 ```
 
 **In Kiro:**
@@ -67,11 +69,11 @@ bash "$FASTPATH_HOME/scripts/install-target.sh" /path/to/your/repo
 **Updates:**
 
 ```bash
-cd ~/fastpath && git pull && npm ci && npm run build
+cd ~/kiro-fastpath && git pull && npm ci && npm run build
 # re-wire if agents/hooks/templates changed:
-node packages/cli/dist/index.js use /path/to/your/repo
+node packages/cli/dist/index.js use /path/to/krom-falcon
 # after a large pull of the *project* repo:
-node packages/cli/dist/index.js index --git /path/to/your/repo
+node packages/cli/dist/index.js index --git /path/to/krom-falcon
 ```
 
 Docs for agents / first install:
@@ -115,7 +117,7 @@ Env (also set by install into MCP/hook):
 
 | Variable | Meaning |
 |----------|---------|
-| `FASTPATH_HOME` | Product install root (default `~/fastpath`) |
+| `FASTPATH_HOME` | Product install root (default `~/kiro-fastpath`) |
 | `FASTPATH_WORKSPACE` | Target repo |
 | `FASTPATH_EMBED` | `auto` \| `minilm` \| `hash` |
 | `FASTPATH_RERANK` | `on` \| `off` |

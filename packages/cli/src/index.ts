@@ -54,7 +54,7 @@ Usage:
   fastpath metrics [--summary]        Local metrics (no network)
 
 Env:
-  FASTPATH_HOME        Install root (default ~/fastpath)
+  FASTPATH_HOME        Install root (default ~/kiro-fastpath)
   FASTPATH_WORKSPACE   Default workspace (else cwd)
   FASTPATH_EMBED       auto|minilm|hash (default auto → MiniLM)
   FASTPATH_RERANK      on|off (default on with minilm)
