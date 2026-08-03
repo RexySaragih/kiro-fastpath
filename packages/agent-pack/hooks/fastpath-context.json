@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "fastpath-auto-context",
+      "description": "On every user prompt, inject FastPath index hits into agent context (exit 0 STDOUT). Deterministic — no LLM credits.",
+      "trigger": "UserPromptSubmit",
+      "action": {
+        "type": "command",
+        "command": "__FASTPATH_INJECT__"
+      },
+      "timeout": 20,
+      "enabled": true
+    }
+  ]
+}

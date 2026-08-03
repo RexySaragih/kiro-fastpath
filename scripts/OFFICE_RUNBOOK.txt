@@ -1,0 +1,74 @@
+FastPath Office Runbook (v0.3)
+==============================
+
+1) Install FastPath home (once per machine)
+------------------------------------------
+Default location: ~/fastpath
+
+From release zip (office):
+  bash scripts/install-home.sh /path/to/fastpath-0.3.0-*.zip
+
+From git (your Mac):
+  git clone <repo> ~/fastpath
+  bash ~/fastpath/scripts/install-home.sh ~/fastpath
+
+Or set: export FASTPATH_HOME=/custom/path
+
+
+2) Wire a project workspace
+---------------------------
+  bash "$FASTPATH_HOME/scripts/install-target.sh" /path/to/repo
+  # or after home is ready:
+  node "$FASTPATH_HOME/packages/cli/dist/index.js" use /path/to/repo
+
+This creates .fastpath/index.db + .kiro agents/hooks/mcp for that repo.
+
+
+3) Kiro UI (required)
+---------------------
+  1. Reload window
+  2. Chat agent picker → Workspace → Scout (daily) or Architect (bigger)
+  3. Hook UI → enable "fastpath-auto-context"
+
+If Scout is missing: doctor must say "Agent pack IDE-compatible".
+Re-run: fastpath repair-kiro /path/to/repo
+
+
+4) Agents
+---------
+  Scout     — daily locate→edit (max ~3 files; no shell/subagent)
+  Architect — multi-file features (+ shell, subagent); impact before renames
+
+
+5) Freshness
+------------
+  Every prompt  — prompt-inject delta (≤20 dirty files, 2s budget)
+  Long sessions — fastpath watch   (path-level delta)
+  After git pull — fastpath index --git
+  Full rebuild   — fastpath index
+  After upgrade  — fastpath index  (rebuild symbols)
+
+
+6) Debug
+--------
+  fastpath doctor /path/to/repo
+  fastpath doctor /path/to/repo --json
+  fastpath home
+  fastpath metrics --summary
+
+Stale ADATA/USB paths in hooks → re-run install-kiro/use from new FASTPATH_HOME.
+
+Hook not injecting → confirm UserPromptSubmit hook enabled in Hook UI.
+
+
+7) Verify (realistic prompt — do NOT say "use FastPath")
+--------------------------------------------------------
+  Where is RunEngine defined, and who calls performVaultLogin?
+  Open at most 3 files, then stop. Don’t edit yet.
+
+Pass: paths under packages/…, hook ran, no repo walk.
+
+
+8) Security
+-----------
+See scripts/SECURITY_NOTES.txt for npm audit highs (transformers/onnx/sharp).

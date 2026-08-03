@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.log
+qc-report.json
+.DS_Store
+*.db
+*.db-wal
+*.db-shm

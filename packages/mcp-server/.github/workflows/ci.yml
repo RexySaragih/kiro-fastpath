@@ -1,0 +1,9 @@
+# CI runs from monorepo root. See ../../.github/workflows/ci.yml
+name: mcp-server-ci-pointer
+on:
+  workflow_dispatch:
+jobs:
+  point:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Use repository-root CI workflow"

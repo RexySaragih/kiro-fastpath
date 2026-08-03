@@ -1,0 +1,40 @@
+# Dependencies & build
+node_modules/
+dist/
+packages/*/dist/
+dist-release/
+test-dist/
+*.tsbuildinfo
+
+# Local FastPath / Kiro wiring (machine-specific absolute paths — do not push)
+.fastpath/
+.kiro/
+.kiroignore
+*.db
+*.db-wal
+*.db-shm
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+.cursor/
+*.swp
+*~
+
+# Logs & coverage
+*.log
+coverage/
+.nyc_output/
+
+# QC / local reports
+qc-report.json
+packages/*/qc-report.json
+
+# Model / grammar caches if ever stored in-repo
+.cache/

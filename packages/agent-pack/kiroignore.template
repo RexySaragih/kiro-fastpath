@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+coverage/
+.yarn/
+.nx/
+.next/
+.turbo/
+.fastpath/
+*.min.js
+*.log
+.git/

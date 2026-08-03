@@ -1,0 +1,118 @@
+You are installing FastPath on this machine for AWS Kiro (IDE/CLI).
+
+GOAL
+Portable home at ~/fastpath (or FASTPATH_HOME), MiniLM + Scout agent, inject hook.
+Make Kiro retrieve→act — not walk the repo.
+
+═══════════════════════════════════════════════════════════
+REMEMBER (read before installing — first install gotchas)
+═══════════════════════════════════════════════════════════
+
+GIT IS THE DEFAULT PATH
+- Preferred: git clone/pull FastPath → ~/fastpath. Zip is OPTIONAL (USB/airgap only).
+- Office machine must NOT depend on /Volumes/ADATA/... paths.
+- After git pull of FastPath: npm ci && npm run build, then re-run `use` if agents/hooks changed.
+
+ONE HOME, MANY REPOS
+- FASTPATH_HOME (default ~/fastpath) = the FastPath product install.
+- Each project keeps its own .fastpath/index.db and .kiro/ wiring.
+- Wiring a repo does not move the index into FASTPATH_HOME.
+
+AGENTS
+- Scout = daily default (locate→edit, max ~3 files, no shell/subagent).
+- Architect = bigger multi-file work (+ shell/subagent); impact before renames.
+- NEVER put allowedTools / includeMcpJson / toolsSettings in agent files —
+  Kiro IDE silently drops the agent (Workspace picker empty). doctor must say
+  "Agent pack IDE-compatible".
+
+KIRO ONLY USES FASTPATH WHEN ALL THREE EXIST
+1) UserPromptSubmit hook fastpath-auto-context (auto-inject STDOUT)
+2) Scout agent with inline mcpServers + @fastpath tools
+3) Index built (MiniLM for SCOUT READY)
+- Index alone does nothing. mcp.json alone is not enough for custom agents.
+
+FRESHNESS
+- Every prompt: prompt-inject delta-reindexes ≤20 dirty files (2s budget) then retrieves.
+- Long sessions: `fastpath watch` (path delta).
+- After big git pull of the *project*: `fastpath index --git` (or full `fastpath index`).
+- After FastPath upgrade: full `fastpath index` once to rebuild symbols.
+
+MOVED OR NEW MACHINE
+- Hooks/MCP embed absolute paths to prompt-inject + MCP server under FASTPATH_HOME.
+- If you relocate FastPath home → re-run: fastpath use "$WORKSPACE" (or install-kiro).
+
+VERIFY WITHOUT SAYING "USE FASTPATH"
+- Realistic prompt is enough if Scout + hook are on, e.g.:
+  "Where is RunEngine defined, and who calls performVaultLogin?
+   Open at most 3 files, then stop. Don't edit yet."
+- Pass: hook ran, real project paths, no listDirectory/glob walk.
+
+DEBUG
+- fastpath doctor "$WORKSPACE"
+- fastpath doctor "$WORKSPACE" --json
+- fastpath home
+- fastpath metrics --summary
+- Runbook: scripts/OFFICE_RUNBOOK.txt
+- Security highs (transformers/onnx/sharp): scripts/SECURITY_NOTES.txt — critical audit must pass.
+
+DO NOT
+- Install @xenova/transformers or native tree-sitter grammar npm packages
+  (stack is @huggingface/transformers + web-tree-sitter 0.24.7).
+- Force-push / change git config / commit node_modules or .fastpath index DBs.
+- Leave other MCP servers enabled on Scout (keeps it slow).
+
+═══════════════════════════════════════════════════════════
+PREREQUISITES
+═══════════════════════════════════════════════════════════
+- Node.js >= 20 and npm
+- macOS: Xcode CLT; Linux: build-essential
+- Network for first `warm` (MiniLM + reranker + WASM grammars)
+- git (for clone/pull path)
+
+INPUTS (ask if missing)
+1) FASTPATH_HOME — default $HOME/fastpath
+2) WORKSPACE — absolute path of the project Kiro will open
+3) FastPath source — git clone URL/path (preferred) OR optional release zip
+
+═══════════════════════════════════════════════════════════
+INSTALL STEPS (run in order)
+═══════════════════════════════════════════════════════════
+
+A) Home (once per machine) — GIT PREFERRED
+   git clone <fastpath-repo-url> ~/fastpath
+   # or: cd ~/fastpath && git pull
+   bash ~/fastpath/scripts/install-home.sh ~/fastpath
+
+   Zip alternative (optional):
+   bash scripts/install-home.sh /path/to/fastpath-0.3.0-*.zip
+
+B) Wire workspace
+   export FASTPATH_HOME=~/fastpath
+   bash "$FASTPATH_HOME/scripts/install-target.sh" "$WORKSPACE"
+   # or: node "$FASTPATH_HOME/packages/cli/dist/index.js" use "$WORKSPACE"
+
+C) Verify
+   node "$FASTPATH_HOME/packages/cli/dist/index.js" doctor "$WORKSPACE"
+   Expect: SCOUT READY + Agent pack IDE-compatible + Embed backend=minilm
+   Optional: doctor --json for support dump
+
+═══════════════════════════════════════════════════════════
+HUMAN CHECKLIST (you cannot do these in the terminal)
+═══════════════════════════════════════════════════════════
+1) Reload Kiro window
+2) Chat agent picker → Workspace → Scout
+3) Hook UI → enable fastpath-auto-context (UserPromptSubmit)
+4) Disable other MCP servers for daily coding
+5) Paste a realistic verify prompt (see REMEMBER above)
+
+SUCCESS CRITERIA
+- doctor prints SCOUT READY
+- .kiro/hooks/fastpath-context.json points at prompt-inject under FASTPATH_HOME
+- .kiro/agents/Scout.md binds @fastpath, has mcpServers, no CLI-only fields
+- Index has vectors + LSH + call_edges; embed_backend=minilm
+- Agent reply uses retrieved paths without repo walk
+
+IF SOMETHING FAILS
+- Paste exact command + stderr
+- Fix root cause; do not invent alternate stacks
+- Re-run doctor until green

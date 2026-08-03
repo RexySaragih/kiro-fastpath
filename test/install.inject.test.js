@@ -1,0 +1,136 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  mkdtempSync,
+  cpSync,
+  rmSync,
+  readFileSync,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+} from 'node:fs';
+import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const cli = join(root, 'packages/cli/dist/index.js');
+const inject = join(root, 'packages/cli/dist/prompt-inject.js');
+
+const testEnv = {
+  ...process.env,
+  FASTPATH_EMBED: 'hash',
+  FASTPATH_RERANK: 'off',
+  FASTPATH_PARSER: 'legacy',
+  FASTPATH_ALLOW_HASH: '1',
+};
+
+test('getIndexStats does not create DB when missing', async () => {
+  const { getIndexStats, resolveDbPath } = await import(
+    join(root, 'packages/core/dist/index.js')
+  );
+  const dir = mkdtempSync(join(tmpdir(), 'fastpath-nostats-'));
+  try {
+    const stats = getIndexStats(dir);
+    assert.equal(stats.files, 0);
+    assert.equal(existsSync(resolveDbPath(dir)), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('install-kiro writes valid hook JSON and wired agents', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fastpath-install-'));
+  try {
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(
+      join(dir, 'src/hello.ts'),
+      'export function hello() { return greet(); }\nfunction greet() { return 1; }\n',
+    );
+    // Legacy names must be removed on install
+    mkdirSync(join(dir, '.kiro/agents'), { recursive: true });
+    writeFileSync(join(dir, '.kiro/agents/surgical.md'), 'legacy\n');
+
+    const init = spawnSync(process.execPath, [cli, 'init', dir], {
+      encoding: 'utf8',
+      env: testEnv,
+    });
+    assert.equal(init.status, 0, init.stderr);
+
+    const index = spawnSync(process.execPath, [cli, 'index', dir], {
+      encoding: 'utf8',
+      env: testEnv,
+    });
+    assert.equal(index.status, 0, index.stderr);
+
+    const install = spawnSync(process.execPath, [cli, 'install-kiro', dir], {
+      encoding: 'utf8',
+      env: testEnv,
+    });
+    assert.equal(install.status, 0, install.stderr + install.stdout);
+
+    const hookPath = join(dir, '.kiro/hooks/fastpath-context.json');
+    const hook = JSON.parse(readFileSync(hookPath, 'utf8'));
+    assert.equal(hook.hooks[0].trigger, 'UserPromptSubmit');
+    assert.match(hook.hooks[0].action.command, /prompt-inject/);
+    assert.equal(readFileSync(hookPath, 'utf8').includes('__FASTPATH_'), false);
+
+    const scout = readFileSync(join(dir, '.kiro/agents/Scout.md'), 'utf8');
+    assert.match(scout, /@fastpath/);
+    assert.doesNotMatch(scout, /__FASTPATH_/);
+    assert.match(scout, /mcpServers:/);
+    assert.doesNotMatch(scout, /\ballowedTools\b/);
+    assert.doesNotMatch(scout, /\bincludeMcpJson\b/);
+    assert.doesNotMatch(scout, /\btoolsSettings\b/);
+    assert.match(scout, /name:\s*Scout/);
+    assert.match(scout, /tools:\s*\["read",\s*"write",\s*"@fastpath"\]/);
+
+    const scoutJsonRaw = readFileSync(join(dir, '.kiro/agents/Scout.json'), 'utf8');
+    assert.doesNotMatch(scoutJsonRaw, /\ballowedTools\b/);
+    assert.doesNotMatch(scoutJsonRaw, /\bincludeMcpJson\b/);
+    const scoutJson = JSON.parse(scoutJsonRaw);
+    assert.ok(scoutJson.mcpServers.fastpath);
+    assert.equal(scoutJson.mcpServers.fastpath.env.FASTPATH_EMBED, 'minilm');
+    assert.equal(scoutJson.mcpServers.fastpath.env.FASTPATH_RERANK, 'on');
+    assert.ok(scoutJson.hooks.userPromptSubmit);
+    assert.match(scout, /FASTPATH_EMBED:\s*"minilm"/);
+
+    const architect = readFileSync(join(dir, '.kiro/agents/Architect.md'), 'utf8');
+    assert.doesNotMatch(architect, /\ballowedTools\b/);
+    assert.doesNotMatch(architect, /\bincludeMcpJson\b/);
+    assert.match(architect, /name:\s*Architect/);
+    assert.equal(existsSync(join(dir, '.kiro/agents/surgical.md')), false);
+
+    const doctor = spawnSync(process.execPath, [cli, 'doctor', dir], {
+      encoding: 'utf8',
+      env: testEnv,
+    });
+    assert.equal(doctor.status, 0, doctor.stdout + doctor.stderr);
+    assert.match(doctor.stdout, /SCOUT READY/);
+    assert.match(doctor.stdout, /Call graph table ready/);
+    assert.match(doctor.stdout, /Agent pack IDE-compatible/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('prompt-inject returns FastPath hits for indexed workspace', async () => {
+  const { indexWorkspace } = await import(join(root, 'packages/core/dist/index.js'));
+  const dir = mkdtempSync(join(tmpdir(), 'fastpath-inject-'));
+  try {
+    cpSync(join(root, 'fixtures/sample-src'), join(dir, 'src'), { recursive: true });
+    await indexWorkspace(dir);
+
+    const result = spawnSync(process.execPath, [inject], {
+      encoding: 'utf8',
+      env: { ...testEnv, FASTPATH_WORKSPACE: dir },
+      input: JSON.stringify({ prompt: 'AuthService login validateJwt', cwd: dir }),
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /FastPath retrieved context/);
+    assert.match(result.stdout, /AuthService|validateJwt|login/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

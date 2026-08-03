@@ -1,0 +1,33 @@
+{
+  "name": "@fastpath/mcp-server",
+  "version": "0.3.0",
+  "description": "MCP server for FastPath local hybrid code index (read-only agent tools)",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "fastpath-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "TOOL_SPEC.md",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
+    "test": "npm run build && node --test test/**/*.test.js",
+    "test:connections": "npm run build && node dist/scripts/test-connections.js",
+    "start": "node dist/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@fastpath/core": "0.3.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "5.8.3"
+  }
+}

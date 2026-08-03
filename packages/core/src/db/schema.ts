@@ -1,0 +1,139 @@
+import Database from 'better-sqlite3';
+import { existsSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { HASH_EMBED_DIM } from '../embed/hash.js';
+
+export interface OpenDatabaseOptions {
+  /** When false, refuse to create a missing DB (status/doctor/search). Default true. */
+  create?: boolean;
+}
+
+export function openDatabase(
+  dbPath: string,
+  options: OpenDatabaseOptions = {},
+): Database.Database {
+  const create = options.create !== false;
+  if (!existsSync(dbPath)) {
+    if (!create) {
+      throw new Error(`FastPath index not found at ${dbPath}. Run: fastpath index`);
+    }
+    mkdirSync(dirname(dbPath), { recursive: true });
+  }
+  const db = new Database(dbPath);
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  db.pragma('synchronous = NORMAL');
+  migrate(db);
+  return db;
+}
+
+function migrate(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS files (
+      path TEXT PRIMARY KEY,
+      hash TEXT NOT NULL,
+      language TEXT NOT NULL,
+      mtime_ms INTEGER NOT NULL,
+      size INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS symbols (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      path TEXT NOT NULL,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      line INTEGER NOT NULL,
+      end_line INTEGER NOT NULL,
+      signature TEXT NOT NULL,
+      tokens TEXT NOT NULL,
+      FOREIGN KEY(path) REFERENCES files(path) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
+    CREATE INDEX IF NOT EXISTS idx_symbols_path ON symbols(path);
+    CREATE INDEX IF NOT EXISTS idx_symbols_name_lower ON symbols(name COLLATE NOCASE);
+
+    CREATE TABLE IF NOT EXISTS edges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      from_path TEXT NOT NULL,
+      to_path TEXT,
+      to_specifier TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_path);
+    CREATE INDEX IF NOT EXISTS idx_edges_to ON edges(to_path);
+
+    CREATE TABLE IF NOT EXISTS ngrams (
+      hash TEXT NOT NULL,
+      path TEXT NOT NULL,
+      PRIMARY KEY (hash, path)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ngrams_hash ON ngrams(hash);
+
+    CREATE TABLE IF NOT EXISTS symbol_vectors (
+      symbol_id INTEGER PRIMARY KEY,
+      dim INTEGER NOT NULL,
+      embedding BLOB NOT NULL,
+      FOREIGN KEY(symbol_id) REFERENCES symbols(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS vector_lsh (
+      table_id INTEGER NOT NULL,
+      bucket INTEGER NOT NULL,
+      symbol_id INTEGER NOT NULL,
+      PRIMARY KEY (table_id, bucket, symbol_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vector_lsh_lookup
+      ON vector_lsh(table_id, bucket);
+
+    CREATE TABLE IF NOT EXISTS call_edges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      from_path TEXT NOT NULL,
+      from_symbol TEXT,
+      to_name TEXT NOT NULL,
+      to_path TEXT,
+      line INTEGER NOT NULL,
+      kind TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_call_to ON call_edges(to_name);
+    CREATE INDEX IF NOT EXISTS idx_call_from ON call_edges(from_path);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(
+      name,
+      tokens,
+      signature,
+      path
+    );
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
+      path,
+      body
+    );
+  `);
+
+  const existingDim = getMeta(db, 'embed_dim');
+  if (!existingDim) setMeta(db, 'embed_dim', String(HASH_EMBED_DIM));
+  setMeta(db, 'schema_version', '4');
+}
+
+export function setMeta(db: Database.Database, key: string, value: string): void {
+  db.prepare(
+    `INSERT INTO meta(key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run(key, value);
+}
+
+export function getMeta(db: Database.Database, key: string): string | null {
+  const row = db.prepare(`SELECT value FROM meta WHERE key = ?`).get(key) as
+    | { value: string }
+    | undefined;
+  return row?.value ?? null;
+}
