@@ -35,28 +35,38 @@ Do not store secrets in project `.env` — use mcp.json `env` if configuration i
 | Var | Required | Description |
 |-----|----------|-------------|
 | `FASTPATH_WORKSPACE` | no | Workspace root (default: `process.cwd()`) |
-## Tools
+## Tools (pick guide)
+
+| Need | Tool |
+|------|------|
+| Concept / fuzzy topic | `search` |
+| Known identifier | `symbol` |
+| Starter files for a coding task | `context_for_task` |
+| Exact text / regex in source lines | `grep_fast` (content only; use `path_prefix` for dirs) |
+| Callers / importers / rename blast radius | `impact` |
+| Save a lasting note | `memory_save` |
+| Recall a past note | `memory_recall` |
 
 ### 1. `search`
-Hybrid FTS + vector (RRF). Params: `query`, `top_k?`, `path_prefix?`. Annotations: readOnly, idempotent, not openWorld, not destructive.
+Hybrid FTS + vector (RRF). Params: `query`, `top_k?`, `path_prefix?`. Annotations: readOnly, idempotent, not openWorld, not destructive. Not for regex or exact symbol-name lookup.
 
 ### 2. `symbol`
-Exact/fuzzy symbol lookup. Params: `name`, `kind?`, `top_k?`. Same annotations.
+Exact/fuzzy symbol lookup by identifier. Params: `name`, `kind?`, `top_k?`. Same annotations. Not for prose questions.
 
 ### 3. `context_for_task`
-One-shot context pack. Params: `task`, `max_chunks?` (max 8). Same annotations.
+One-shot context pack for starting work. Params: `task`, `max_chunks?` (max 8). Same annotations. Prefer once per task; skip if inject already enough.
 
 ### 4. `grep_fast`
-Sparse n-gram prefilter + regex verify. Params: `pattern`, `top_k?`, `path_prefix?`. Same annotations.
+Sparse n-gram prefilter + regex verify against **file contents** (not filenames). Params: `pattern`, `top_k?`, `path_prefix?`. Same annotations. Never use filename globs as `pattern`; scope dirs with `path_prefix`.
 
 ### 5. `impact`
-Definitions + importers + references. Params: `name`, `depth?` (1–3), `top_k?`. Same annotations.
+Definitions + callers + importers + refs for a **known** symbol. Params: `name`, `depth?` (1–3), `top_k?`. Same annotations.
 
 ### 6. `memory_save`
-Persist a project memory (decision / fact / preference / session) into `.fastpath/index.db`. Params: `kind`, `text`, `tags?`, `paths?`. Annotations: NOT readOnly (local store write), idempotent, not destructive, not openWorld.
+Persist a project memory (decision / fact / preference / session) into `.fastpath/index.db`. Params: `kind`, `text`, `tags?`, `paths?`. Annotations: NOT readOnly (local store write), idempotent, not destructive, not openWorld. Not for code search.
 
 ### 7. `memory_recall`
-FTS + embedding RRF recall over saved memories. Params: `query`, `top_k?` (max 10). Annotations: readOnly, idempotent, not openWorld, not destructive.
+FTS + embedding RRF recall over saved memories. Params: `query`, `top_k?` (max 10). Annotations: readOnly, idempotent, not openWorld, not destructive. Not for source code.
 
 ## Non-goals
 

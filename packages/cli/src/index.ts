@@ -49,7 +49,7 @@ const ROOT = PACKAGE_ROOT;
 const AGENT_PACK = join(ROOT, 'packages/agent-pack');
 
 /** IDE agents only — Scout.json removed (dual-source drift). */
-const AGENT_TEMPLATES = ['Router.md', 'Scout.md', 'Architect.md'] as const;
+const AGENT_TEMPLATES = ['Scout.md', 'Architect.md'] as const;
 
 function usage(): never {
   const ver = readPackageVersion();
@@ -98,10 +98,9 @@ function printKiroChecklist(): void {
   console.log('Kiro checklist:');
   console.log('  1) Reload window (Cmd+Shift+P → Developer: Reload Window)');
   console.log('  2) Trust workspace if prompted (required for .kiro/agents)');
-  console.log('  3) Chat agent picker → Workspace → Router (default; auto-delegates)');
-  console.log('     Or drive directly: Scout (small edits) / Architect (multi-file)');
+  console.log('  3) Chat agent picker → Workspace → Scout (daily) or Architect (multi-file)');
   console.log('  4) Hook UI → enable all fastpath-* hooks');
-  console.log('  5) Effort: Router/Scout → /effort low · Architect → /effort medium');
+  console.log('  5) Effort: Scout → /effort low · Architect → /effort medium');
 }
 
 function cmdInit(workspace: string): void {
@@ -298,6 +297,8 @@ function installAgentTemplates(
     'feature.md',
     'feature.json',
     'Scout.json',
+    'Router.md',
+    'Marshal.md',
   ]) {
     const p = join(agentsDir, legacy);
     if (existsSync(p)) unlinkSync(p);
@@ -427,15 +428,14 @@ function cmdInstallKiro(workspace: string): void {
 
   console.log(`Installed Kiro FastPath pack into ${workspace}`);
   console.log(`FastPath home: ${home}`);
-  console.log('- .kiro/agents/Router.md (default — auto-routes to Scout/Architect)');
-  console.log('- .kiro/agents/Scout.md (small edits, /scout)');
+  console.log('- .kiro/agents/Scout.md (daily coding, /scout)');
   console.log('- .kiro/agents/Architect.md (multi-file features, /architect)');
   console.log('- .kiro/steering/fastpath.md (always-on)');
   console.log('- .kiro/hooks/fastpath-context.json (inject + session + file-delta + guardrail)');
   console.log('- .kiro/settings/mcp.json (fastpath server)');
   console.log('');
   console.log('Critical:');
-  console.log('1) Select agent "Router" (default) — or Scout/Architect directly');
+  console.log('1) Select agent "Scout" (daily) or "Architect" (multi-file)');
   console.log('2) Confirm all fastpath-* hooks are enabled in Kiro Hook UI');
   console.log('3) Run: fastpath warm && FASTPATH_EMBED=minilm fastpath index && fastpath doctor');
   console.log('4) Optional long sessions: fastpath watch');
@@ -446,6 +446,7 @@ function cmdInstallKiro(workspace: string): void {
 function cmdUnwire(workspace: string, purgeIndex: boolean): void {
   const agentsDir = join(workspace, '.kiro/agents');
   for (const name of [
+    'Marshal.md',
     'Router.md',
     'Scout.md',
     'Architect.md',

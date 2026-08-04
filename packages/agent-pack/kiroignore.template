@@ -1,3 +1,5 @@
+# FastPath also keeps test/, tests/, __tests__/, spec/, e2e/ indexed
+# even if .gitignore ignores them. Re-ignore noisy bits via .fastpathignore.
 node_modules/
 dist/
 build/

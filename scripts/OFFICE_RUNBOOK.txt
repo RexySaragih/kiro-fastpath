@@ -42,10 +42,10 @@ Re-run: fastpath repair-kiro /path/to/repo
 
 4) Agents
 ---------
-  Scout.md     — claude-sonnet-4.6, /effort low — daily locate→edit (max ~3 files)
-  Architect.md — claude-sonnet-4.6, /effort medium — multi-file (+ shell/subagent)
+  Scout.md     — claude-sonnet-5, /effort low — daily locate→edit (max ~3 files)
+  Architect.md — claude-opus-5, /effort medium — multi-file (+ shell/subagent)
   Effort is session-level in Kiro; set /effort when switching agents.
-  Scout.json is NOT installed (IDE uses .md only).
+  Scout.json / Marshal.md / Router.md are NOT installed (legacy removed on rewire).
 
 
 5) Freshness
@@ -78,10 +78,7 @@ Corrupt DB → fastpath index --rebuild
   Open at most 3 files, then stop. Don’t edit yet.
 
 Pass: paths under packages/…, hook ran, no repo walk.
+Fail: broad listDirectory / many random reads before an answer.
 
 
-8) Security / support
----------------------
-  scripts/SECURITY_NOTES.txt — npm audit highs (transformers/onnx/sharp)
-  scripts/SUPPORT_MATRIX.txt — OS/Node/Kiro limits
-  scripts/RELEASE_GATE.txt   — 1.0 cold-install checklist
+Support: SUPPORT_MATRIX.txt · Release: RELEASE_GATE.txt · Security: SECURITY_NOTES.txt

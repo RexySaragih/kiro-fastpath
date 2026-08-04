@@ -53,7 +53,7 @@ sequenceDiagram
 1. FastPath keeps a **local map** of your project (and short notes from past turns).
 2. Every time you send a message, it **looks up** a few matching files — not the whole tree.
 3. Those results are **pasted into Kiro’s context** automatically.
-4. **Router** decides: answer itself, use **Scout** (small edit), or **Architect** (bigger work).
+4. You pick **Scout** (small edit) or **Architect** (bigger work).
 5. When a turn ends, FastPath **remembers** what changed so the next session starts smarter.
 
 ## How is this different?
@@ -66,7 +66,7 @@ Same neighborhood as tools like [KiroGraph](https://github.com/davide-desio-elev
 | Knows where code lives? | Yes (search, symbols, snippets) | Yes, plus richer “who calls whom” analysis | Usually no |
 | Remembers past decisions? | Yes, but small and simple | Yes (optional, richer) | That’s their whole product |
 | Blocks wasteful folder listing? | Yes (guardrail) | Soft reminders / agent habits | No |
-| Ships ready agents (Router / Scout / Architect)? | Yes | No (tools for whatever agent you use) | No |
+| Ships ready agents (Scout / Architect)? | Yes | No (tools for whatever agent you use) | No |
 
 **vs KiroGraph** — both keep a local map so Kiro doesn’t re-scan the tree. KiroGraph goes deep (call chains, dead code, architecture checks, optional heavy memory). FastPath stays thin: auto-paste a few hits into every prompt, route small vs big work, and block “list every folder.” Think atlas + lab vs GPS that only shows the next few turns.
 
@@ -93,7 +93,7 @@ You can combine them in theory; for one tool, FastPath’s bet is **forced retri
 | Symbols | web-tree-sitter (legacy TS/regex fallback) |
 | Freshness | Prompt-inject delta, `watch`, `index --git` |
 | Delivery | MCP stdio — 7 tools (search + memory) |
-| Harness | Router / Scout / Architect + steering + doctor |
+| Harness | Scout / Architect + steering + doctor |
 
 ## Make Kiro actually use the index
 
@@ -104,7 +104,7 @@ Indexing alone does nothing. Kiro only uses FastPath when all four exist:
 3. **Tool binding** — agents have inline `mcpServers.fastpath` + `tools: [..., "@fastpath"]`.
 4. **Behavior** — steering + agent prompts: max ~3 file reads, no repo walks, recall memory before re-deriving.
 
-`install-target` / `use` / `install-kiro` install all of it. Then select **Router** and enable the hooks in Kiro Hook UI.
+`install-target` / `use` / `install-kiro` install all of it. Then select **Scout** and enable the hooks in Kiro Hook UI.
 
 ## Quick start (git — recommended)
 
@@ -130,7 +130,7 @@ bash "$FASTPATH_HOME/scripts/install-target.sh" /path/to/your-repo
 **In Kiro:**
 
 1. Reload window  
-2. Agent picker → **Workspace → Router** (or Scout/Architect directly)  
+2. Agent picker → **Workspace → Scout** (daily) or **Architect** (multi-file)  
 3. Hook UI → enable all **fastpath-\*** hooks  
 4. Disable other MCP servers for daily work  
 
@@ -166,9 +166,8 @@ bash scripts/install-target.sh /path/to/your/repo
 
 | Agent | Model | Effort (session) | Use for |
 |-------|-------|------------------|---------|
-| **Router** | `claude-sonnet-4.6` | `/effort low` | Default — answers questions from injected context, delegates edits to Scout/Architect subagents |
-| **Scout** | `claude-sonnet-4.6` | `/effort low` | Daily coding — locate → edit, max ~3 files |
-| **Architect** | `claude-sonnet-4.6` | `/effort medium` | Multi-file features (+ shell / subagent) |
+| **Scout** | `claude-sonnet-5` | `/effort low` | Daily coding — locate → edit, max ~3 files |
+| **Architect** | `claude-opus-5` | `/effort medium` | Multi-file features (+ shell / subagent) |
 
 Kiro binds effort per session/model, not per agent — set `/effort` when you switch agents.
 

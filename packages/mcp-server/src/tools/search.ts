@@ -11,21 +11,31 @@ const READ_ONLY = {
   openWorldHint: false,
 } as const;
 
+const PATH_PREFIX_DESC =
+  'Optional workspace-relative directory/file prefix to restrict results, e.g. "src/modules/auth" or "test/". Filters by indexed path, not by filename glob.';
+
 export const searchTool: Tool = {
   name: 'search',
   description:
-    'Hybrid search (FTS5 BM25 + feature-hash vectors via RRF). Prefer before walking the repo. Returns few ranked hits with short snippets.',
+    'Ranked hybrid code search (keyword FTS + vectors). ' +
+    'USE when: you have a concept, behavior, or fuzzy topic ("login validation", "blacklist role") and need a few likely files/snippets. ' +
+    'DO NOT use when: you already know the exact symbol name → use symbol; you need a regex/string literal in source → use grep_fast; you need callers/importers → use impact; you need a starter pack for a whole coding task → use context_for_task. ' +
+    'Never listDirectory/glob the repo instead of this. Returns a small ranked hit list with short snippets.',
   inputSchema: {
     type: 'object',
     properties: {
-      query: { type: 'string', description: 'Search query (identifiers or natural language)' },
+      query: {
+        type: 'string',
+        description:
+          'Natural language or identifiers describing what to find, e.g. "JWT validation" or "BlacklistService". Not a regex.',
+      },
       top_k: {
         type: 'number',
-        description: `Max results (default 8, max ${HARD_MAX_TOP_K})`,
+        description: `Max hits to return (default 8, max ${HARD_MAX_TOP_K}).`,
       },
       path_prefix: {
         type: 'string',
-        description: 'Optional path prefix filter, e.g. src/auth',
+        description: PATH_PREFIX_DESC,
       },
     },
     required: ['query'],
@@ -37,11 +47,18 @@ export const searchTool: Tool = {
 export const symbolTool: Tool = {
   name: 'symbol',
   description:
-    'Exact/fuzzy symbol lookup by name (functions, classes, methods, types).',
+    'Look up a named code symbol (function/class/method/type/const) by identifier. ' +
+    'USE when: you know or nearly know the symbol name ("AuthService", "validateJwt", "performVaultLogin"). ' +
+    'DO NOT use when: the query is a phrase/concept with no identifier → use search; you need exact text/regex in file bodies → use grep_fast; you need who calls/imports a symbol → use impact after you have the name. ' +
+    'Returns definition locations with optional kind filter.',
   inputSchema: {
     type: 'object',
     properties: {
-      name: { type: 'string', description: 'Symbol name or partial name' },
+      name: {
+        type: 'string',
+        description:
+          'Exact or partial symbol identifier only (no spaces/prose). Example: "AuthService" or "validateJwt".',
+      },
       kind: {
         type: 'string',
         enum: [
@@ -55,8 +72,12 @@ export const symbolTool: Tool = {
           'export',
           'other',
         ],
+        description: 'Optional symbol kind filter to narrow results.',
       },
-      top_k: { type: 'number', description: 'Max results (default 8)' },
+      top_k: {
+        type: 'number',
+        description: `Max hits (default 8, max ${HARD_MAX_TOP_K}).`,
+      },
     },
     required: ['name'],
     additionalProperties: false,
@@ -67,14 +88,21 @@ export const symbolTool: Tool = {
 export const contextForTaskTool: Tool = {
   name: 'context_for_task',
   description:
-    'One-shot context pack for a coding task: top entry points + snippets + imports. Cap is small by design.',
+    'One-shot context pack for starting a coding task: top entry-point files + short snippets + imports. ' +
+    'USE when: beginning an edit/feature and you need a small starter set of files ("add blacklist export endpoint"). Prefer once per task before diving in. ' +
+    'DO NOT use when: you only need one symbol → use symbol; you need a specific string/regex → use grep_fast; you need blast radius of a rename → use impact; you already have enough paths from auto-inject. ' +
+    'Cap is small by design — not a full-repo dump.',
   inputSchema: {
     type: 'object',
     properties: {
-      task: { type: 'string', description: 'Natural-language task description' },
+      task: {
+        type: 'string',
+        description:
+          'Short natural-language coding task, e.g. "fix JWT expiry on login" or "add export to blacklist API".',
+      },
       max_chunks: {
         type: 'number',
-        description: 'Max code chunks (default 5, max 8)',
+        description: 'Max code chunks to return (default 5, max 8).',
       },
     },
     required: ['task'],
@@ -86,16 +114,26 @@ export const contextForTaskTool: Tool = {
 export const grepFastTool: Tool = {
   name: 'grep_fast',
   description:
-    'Fast regex/literal search using sparse n-gram index prefilter, then verify matches. Prefer over scanning the whole tree.',
+    'Search FILE CONTENTS (not filenames) with a regex or literal string. ' +
+    'USE when: you need exact text, an API string, an error message, a decorator, or a regex in source lines (e.g. "describe\\\\(", "@Controller", "BLACKLIST_"). ' +
+    'DO NOT use when: looking up a symbol definition by name → use symbol; semantic/"how does X work" → use search; filename patterns like "\\\\.test\\\\.ts" as the pattern (that matches text inside files, not paths) — instead set path_prefix to "test/" and use a content pattern. ' +
+    'Prefer over listDirectory/glob/repo-wide shell grep.',
   inputSchema: {
     type: 'object',
     properties: {
       pattern: {
         type: 'string',
-        description: 'Regex or literal pattern',
+        description:
+          'Regex or literal matched against each source line (content only, never the path). Examples: "describe\\\\(", "validateJwt", "@Injectable".',
       },
-      top_k: { type: 'number', description: 'Max matches (default 8)' },
-      path_prefix: { type: 'string', description: 'Optional path prefix filter' },
+      top_k: {
+        type: 'number',
+        description: `Max line matches (default 8, max ${HARD_MAX_TOP_K}).`,
+      },
+      path_prefix: {
+        type: 'string',
+        description: PATH_PREFIX_DESC,
+      },
     },
     required: ['pattern'],
     additionalProperties: false,
@@ -106,16 +144,25 @@ export const grepFastTool: Tool = {
 export const impactTool: Tool = {
   name: 'impact',
   description:
-    'Blast-radius for a symbol: definitions, callers (call graph), importers (import edges), and textual references.',
+    'Blast-radius for a known symbol: definitions, callers (call graph), importers (import edges), and textual references. ' +
+    'USE when: before rename/API change/delete — "who uses AuthService?", "callers of performVaultLogin". ' +
+    'DO NOT use when: you do not yet know the symbol name (find it with symbol/search first); you only need the definition location → use symbol; you need arbitrary text matches → use grep_fast. ' +
+    'Requires a symbol identifier, not a prose question.',
   inputSchema: {
     type: 'object',
     properties: {
-      name: { type: 'string', description: 'Symbol name' },
+      name: {
+        type: 'string',
+        description: 'Exact symbol identifier to analyze, e.g. "AuthService" or "performVaultLogin".',
+      },
       depth: {
         type: 'number',
-        description: 'Importer traversal depth (1-3, default 1)',
+        description: 'How many importer hops to traverse (1–3, default 1). Higher = wider, noisier.',
       },
-      top_k: { type: 'number', description: 'Max items per section' },
+      top_k: {
+        type: 'number',
+        description: 'Max items per result section (definitions/callers/importers/refs).',
+      },
     },
     required: ['name'],
     additionalProperties: false,

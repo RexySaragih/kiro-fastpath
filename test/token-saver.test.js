@@ -107,7 +107,30 @@ test('Ignore: gitignore negation and root anchoring respected', async () => {
   }
 });
 
-test('Install: all event hooks + Router agent wired with no placeholders', () => {
+test('Ignore: test/ outside src/ stays indexed even when gitignored', async () => {
+  const { IgnoreMatcher } = await core();
+  const dir = mkdtempSync(join(tmpdir(), 'fastpath-keep-test-'));
+  try {
+    writeFileSync(join(dir, '.gitignore'), 'test/\ntests/\n__tests__/\nspec/\ne2e/\n');
+    writeFileSync(
+      join(dir, '.fastpathignore'),
+      'test/fixtures/\n',
+    );
+    const matcher = new IgnoreMatcher(dir);
+
+    assert.equal(matcher.ignores(dir, join(dir, 'test/login.test.ts')), false);
+    assert.equal(matcher.ignores(dir, join(dir, 'tests/unit.ts')), false);
+    assert.equal(matcher.ignores(dir, join(dir, '__tests__/foo.ts')), false);
+    assert.equal(matcher.ignores(dir, join(dir, 'spec/bar.ts')), false);
+    assert.equal(matcher.ignores(dir, join(dir, 'e2e/flow.ts')), false);
+    // .fastpathignore can still drop noisy subtrees under test/
+    assert.equal(matcher.ignores(dir, join(dir, 'test/fixtures/blob.bin')), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Install: all event hooks + Scout/Architect wired with no placeholders', () => {
   const dir = tempWorkspace('fastpath-hooks-install-');
   const userDir = mkdtempSync(join(tmpdir(), 'fastpath-user-'));
   const env = makeEnv(userDir);
@@ -135,18 +158,19 @@ test('Install: all event hooks + Router agent wired with no placeholders', () =>
     const del = hook.hooks.find((h) => h.trigger === 'PostFileDelete');
     assert.match(del.action.command, /--delete/);
 
-    const router = readFileSync(join(dir, '.kiro/agents/Router.md'), 'utf8');
-    assert.match(router, /name:\s*Router/);
-    assert.match(router, /subagent/);
-    assert.match(router, /capability:\s*fs_write/);
-    assert.doesNotMatch(router, /capability:\s*write\b/);
-    assert.doesNotMatch(router, /__FASTPATH_/);
-    assert.match(router, /memory_recall/);
+    const scout = readFileSync(join(dir, '.kiro/agents/Scout.md'), 'utf8');
+    assert.match(scout, /name:\s*Scout/);
+    assert.match(scout, /claude-sonnet-5/);
+    assert.doesNotMatch(scout, /capability:\s*write\b/);
+    assert.doesNotMatch(scout, /__FASTPATH_/);
+    assert.match(scout, /memory_recall/);
+    assert.ok(!existsSync(join(dir, '.kiro/agents/Marshal.md')));
 
     const doctor = spawnSync(process.execPath, [cli, 'doctor', dir], { encoding: 'utf8', env });
     assert.equal(doctor.status, 0, doctor.stdout + doctor.stderr);
     assert.match(doctor.stdout, /Event hooks installed/);
-    assert.match(doctor.stdout, /Router agent installed/);
+    assert.match(doctor.stdout, /Scout agent installed/);
+    assert.match(doctor.stdout, /Architect agent installed/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(userDir, { recursive: true, force: true });

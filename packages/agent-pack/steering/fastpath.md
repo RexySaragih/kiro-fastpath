@@ -9,8 +9,19 @@ Kiro MUST locate code through FastPath, not by walking the repo.
 ## Always
 
 1. Use auto-injected `## FastPath retrieved context` (and `## FastPath memory`) when present.
-2. Otherwise call FastPath MCP tools: `search`, `symbol`, `grep_fast`, `context_for_task`, `impact`.
+2. Otherwise call the matching FastPath MCP tool (see pick table). Prefer tool descriptions over guessing.
 3. Open at most 3 files from those results, then edit.
+
+| Need | Tool |
+|------|------|
+| Concept / fuzzy topic | `search` |
+| Known identifier | `symbol` |
+| Starter pack for a coding task | `context_for_task` |
+| Exact text / regex in source lines | `grep_fast` |
+| Callers / importers / rename blast radius | `impact` |
+| Past decision/fact | `memory_recall` / `memory_save` |
+
+`grep_fast` matches **file contents**, not filenames. Scope dirs with `path_prefix` (e.g. `test/`). Never use `\\.test\\.ts` as pattern expecting path matches.
 
 ## Speak short (default)
 

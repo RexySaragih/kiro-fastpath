@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import { DEFAULT_IGNORE_DIRS } from './types.js';
+import { DEFAULT_IGNORE_DIRS, DEFAULT_KEEP_DIRS } from './types.js';
 
 function loadPatternFile(workspace: string, name: string): string[] {
   const path = join(workspace, name);
@@ -40,10 +40,14 @@ export class IgnoreMatcher {
   private readonly rules: IgnoreRule[];
 
   constructor(workspace: string) {
+    // Order matters (last match wins): keep-dirs beat gitignore so test/
+    // outside src/ stays searchable; .fastpathignore can still re-ignore
+    // noisy subtrees (e.g. test/fixtures/).
     const patterns = [
       ...[...DEFAULT_IGNORE_DIRS].map((d) => `${d}/`),
       ...loadPatternFile(workspace, '.gitignore'),
       ...loadPatternFile(workspace, '.kiroignore'),
+      ...[...DEFAULT_KEEP_DIRS].map((d) => `!${d}/`),
       ...loadPatternFile(workspace, '.fastpathignore'),
     ];
     this.rules = patterns.map(toRule);

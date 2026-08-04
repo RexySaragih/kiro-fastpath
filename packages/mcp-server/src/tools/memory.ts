@@ -9,25 +9,33 @@ const MEMORY_KIND_ENUM = ['decision', 'fact', 'preference', 'session'] as const;
 export const memorySaveTool: Tool = {
   name: 'memory_save',
   description:
-    'Persist a durable project memory (decision, fact, or preference) so future sessions recall it without re-deriving. Writes only to the local .fastpath store.',
+    'Save one durable project memory into the local .fastpath store for later recall. ' +
+    'USE when: you (or the user) made a lasting decision, established a fact about the codebase, or captured a preference worth reusing next session. ' +
+    'DO NOT use when: looking up code (use search/symbol/grep_fast); recalling past notes (use memory_recall); dumping long chat transcripts or secrets. ' +
+    'Write one concise statement. kind=session is for automatic turn summaries — prefer decision|fact|preference for manual saves.',
   inputSchema: {
     type: 'object',
     properties: {
       kind: {
         type: 'string',
         enum: [...MEMORY_KIND_ENUM],
-        description: 'decision (why we chose X), fact (how Y works), preference (user style), session (auto)',
+        description:
+          'decision = why we chose X; fact = how Y works in this repo; preference = user/style constraint; session = auto turn summary (avoid manual use).',
       },
-      text: { type: 'string', description: 'One concise statement worth remembering' },
+      text: {
+        type: 'string',
+        description:
+          'Single concise memorable statement (1–2 sentences). Example: "Auth uses validateJwt in src/auth.ts; tokens expire in 15m."',
+      },
       tags: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Optional topic tags',
+        description: 'Optional short topic tags, e.g. ["auth", "jwt"].',
       },
       paths: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Optional related file paths',
+        description: 'Optional related workspace-relative file paths, e.g. ["src/auth.ts"].',
       },
     },
     required: ['kind', 'text'],
@@ -44,12 +52,22 @@ export const memorySaveTool: Tool = {
 export const memoryRecallTool: Tool = {
   name: 'memory_recall',
   description:
-    'Semantic + keyword recall over saved project memories (decisions, facts, preferences, past sessions).',
+    'Recall previously saved project memories (decisions/facts/preferences/sessions) via keyword + semantic match. ' +
+    'USE when: before re-deriving project knowledge ("what auth approach did we pick?", "user prefers X"). ' +
+    'DO NOT use when: searching source code (use search/symbol/grep_fast); saving a new memory (use memory_save). ' +
+    'Returns short memory lines, not file contents.',
   inputSchema: {
     type: 'object',
     properties: {
-      query: { type: 'string', description: 'What to recall' },
-      top_k: { type: 'number', description: 'Max memories (default 3, max 10)' },
+      query: {
+        type: 'string',
+        description:
+          'What to recall in plain language, e.g. "auth token expiry" or "blacklist export decision".',
+      },
+      top_k: {
+        type: 'number',
+        description: 'Max memories to return (default 3, max 10).',
+      },
     },
     required: ['query'],
     additionalProperties: false,

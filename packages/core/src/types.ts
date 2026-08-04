@@ -111,6 +111,19 @@ export const DEFAULT_IGNORE_DIRS = new Set([
   'venv',
 ]);
 
+/**
+ * Always keep these dirs searchable even when .gitignore ignores them
+ * (e.g. committed test trees outside src/). .fastpathignore can still
+ * re-ignore noisy subtrees (fixtures/, snapshots/, etc.).
+ */
+export const DEFAULT_KEEP_DIRS = new Set([
+  'test',
+  'tests',
+  '__tests__',
+  'spec',
+  'e2e',
+]);
+
 export const INDEXABLE_EXTENSIONS = new Set([
   '.ts',
   '.tsx',

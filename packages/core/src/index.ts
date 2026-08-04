@@ -1,5 +1,6 @@
 export {
   DEFAULT_IGNORE_DIRS,
+  DEFAULT_KEEP_DIRS,
   DEFAULT_MAX_CHUNKS,
   DEFAULT_TOP_K,
   HARD_MAX_CHUNKS,
@@ -15,6 +16,7 @@ export {
   type SearchOptions,
   type SymbolKind,
 } from './types.js';
+
 export { IgnoreMatcher } from './ignore.js';
 export { tokenizeIdentifier, clampTopK, snippetAround } from './tokenize.js';
 export {

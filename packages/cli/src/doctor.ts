@@ -315,9 +315,14 @@ export async function runDoctor(workspace: string): Promise<DoctorResult> {
   }
 
   const agentsDir = join(workspace, '.kiro/agents');
-  checkAgentFile('Router', join(agentsDir, 'Router.md'), issues, ok);
   checkAgentFile('Scout', join(agentsDir, 'Scout.md'), issues, ok);
   checkAgentFile('Architect', join(agentsDir, 'Architect.md'), issues, ok);
+
+  for (const legacy of ['Marshal.md', 'Router.md'] as const) {
+    if (existsSync(join(agentsDir, legacy))) {
+      notes.push(`Legacy ${legacy} still present — re-run install-kiro/rewire to remove it`);
+    }
+  }
 
   // Dual Scout sources drift — JSON is CLI-legacy; IDE uses .md
   const scoutJson = join(agentsDir, 'Scout.json');

@@ -1,7 +1,7 @@
 ---
 name: Architect
-description: Multi-file features, refactors, migrations, and new modules — anything spanning 4+ files or needing design. FastPath-guided with impact analysis before API changes. (Sonnet 4.6, /effort medium)
-model: claude-sonnet-4.6
+description: Multi-file features, refactors, migrations, and new modules — anything spanning 4+ files or needing design. FastPath-guided with impact analysis before API changes. (Opus 5, /effort medium)
+model: claude-opus-5
 tools: ["read", "write", "shell", "subagent", "@fastpath"]
 mcpServers:
   fastpath:

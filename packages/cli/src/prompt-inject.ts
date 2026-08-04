@@ -49,7 +49,7 @@ const SMALL_TASK_KEYWORDS = /\b(fix|typo|bug|tweak|adjust|small|quick|one.?liner
 const MULTI_FILE_HIT_SPREAD = 4;
 
 /**
- * Deterministic routing hint for the Router agent (and humans picking agents).
+ * Deterministic routing hint for humans picking Scout vs Architect.
  * One line, computed from keywords + retrieval spread — no LLM cost.
  */
 function routingHint(prompt: string, hitPaths: string[]): string | null {
@@ -59,10 +59,10 @@ function routingHint(prompt: string, hitPaths: string[]): string | null {
   const smallSignal = SMALL_TASK_KEYWORDS.test(prompt);
 
   if (multiSignal && !smallSignal) {
-    return `Routing: multi-file scope likely (${distinctFiles} files matched) — use /architect.`;
+    return `Routing: multi-file scope likely (${distinctFiles} files matched) — prefer Architect.`;
   }
   if (smallSignal && !multiSignal) {
-    return 'Routing: small scope — use /scout.';
+    return 'Routing: small scope — prefer Scout.';
   }
   return null;
 }
