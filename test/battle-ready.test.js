@@ -41,7 +41,7 @@ test('schema version + integrity + busy_timeout exported', async () => {
     checkDatabaseIntegrity,
     indexWorkspace,
   } = await import(join(root, 'packages/core/dist/index.js'));
-  assert.equal(CURRENT_SCHEMA_VERSION, 4);
+  assert.equal(CURRENT_SCHEMA_VERSION, 5);
   assert.ok(SQLITE_BUSY_TIMEOUT_MS >= 1000);
 
   const dir = fixtureWs();
@@ -120,7 +120,7 @@ test('doctor --json includes battle-ready fields', () => {
     const json = JSON.parse(doc.stdout);
     assert.equal(json.ready, true);
     assert.ok(Array.isArray(json.notes));
-    assert.equal(json.schemaVersion, 4);
+    assert.equal(json.schemaVersion, 5);
     assert.equal(json.integrityOk, true);
     assert.equal(json.searchSmokeOk, true);
     assert.ok(json.agentsIdeCompatible);

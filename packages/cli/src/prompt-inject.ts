@@ -10,33 +10,61 @@ import {
   getIndexStats,
   IndexLimits,
   indexWorkspacePaths,
+  recallMemories,
+  type MemoryEntry,
 } from '@fastpath/core';
+import { updateWorkspaceState } from './state.js';
+import {
+  type HookPayload,
+  parseHookPayload,
+  readStdinText,
+  withTimeout,
+  writeContext,
+  workspaceFromPayload,
+} from './hook-util.js';
 import { appendMetric } from './metrics.js';
-
-interface HookPayload {
-  prompt?: string;
-  cwd?: string;
-  hook_event_name?: string;
-}
 
 const SNIPPET_MAX_CHARS = 600;
 const MAX_HITS = 6;
 const CONTEXT_CHUNKS = 5;
+const MEMORY_TOP_K = 3;
+const MEMORY_SNIPPET_MAX_CHARS = 240;
+const MEMORY_RECALL_BUDGET_MS = 1000;
 
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks).toString('utf8');
+/** Compact, budgeted memory recall — a few lines max, never blocks the prompt. */
+async function recallRelevantMemories(
+  workspace: string,
+  prompt: string,
+): Promise<MemoryEntry[]> {
+  const raced = await withTimeout(
+    recallMemories(workspace, prompt, MEMORY_TOP_K),
+    MEMORY_RECALL_BUDGET_MS,
+  );
+  return raced.value ?? [];
 }
 
-function workspaceFrom(payload: HookPayload): string {
-  return (
-    process.env.FASTPATH_WORKSPACE?.trim() ||
-    payload.cwd?.trim() ||
-    process.cwd()
-  );
+const MULTI_FILE_KEYWORDS =
+  /\b(feature|refactor|migrat\w*|redesign|restructure|rewrite|implement|architecture|new module|integrat\w*|across|end.?to.?end|system)\b/i;
+const SMALL_TASK_KEYWORDS = /\b(fix|typo|bug|tweak|adjust|small|quick|one.?liner?)\b/i;
+const MULTI_FILE_HIT_SPREAD = 4;
+
+/**
+ * Deterministic routing hint for the Router agent (and humans picking agents).
+ * One line, computed from keywords + retrieval spread — no LLM cost.
+ */
+function routingHint(prompt: string, hitPaths: string[]): string | null {
+  const distinctFiles = new Set(hitPaths).size;
+  const multiSignal =
+    MULTI_FILE_KEYWORDS.test(prompt) || distinctFiles >= MULTI_FILE_HIT_SPREAD;
+  const smallSignal = SMALL_TASK_KEYWORDS.test(prompt);
+
+  if (multiSignal && !smallSignal) {
+    return `Routing: multi-file scope likely (${distinctFiles} files matched) — use /architect.`;
+  }
+  if (smallSignal && !multiSignal) {
+    return 'Routing: small scope — use /scout.';
+  }
+  return null;
 }
 
 function extractPrompt(payload: HookPayload, raw: string): string {
@@ -48,26 +76,6 @@ function extractPrompt(payload: HookPayload, raw: string): string {
   if (payload.prompt?.trim()) return payload.prompt.trim();
   if (raw.trim() && !raw.trim().startsWith('{')) return raw.trim();
   return '';
-}
-
-function writeContext(body: string): void {
-  process.stdout.write(body.endsWith('\n') ? body : `${body}\n`);
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<{ value?: T; timedOut: boolean }> {
-  let timer: NodeJS.Timeout | undefined;
-  return new Promise((resolve) => {
-    timer = setTimeout(() => resolve({ timedOut: true }), ms);
-    promise
-      .then((value) => {
-        if (timer) clearTimeout(timer);
-        resolve({ value, timedOut: false });
-      })
-      .catch(() => {
-        if (timer) clearTimeout(timer);
-        resolve({ timedOut: true });
-      });
-  });
 }
 
 async function maybeDeltaReindex(
@@ -104,21 +112,22 @@ async function maybeDeltaReindex(
 }
 
 async function run(): Promise<void> {
-  const raw = await readStdin();
-  let payload: HookPayload = {};
-  try {
-    payload = raw.trim() ? (JSON.parse(raw) as HookPayload) : {};
-  } catch {
-    payload = {};
-  }
+  const raw = await readStdinText();
+  const payload = parseHookPayload(raw);
 
   const prompt = extractPrompt(payload, raw);
-  const workspace = workspaceFrom(payload);
+  const workspace = workspaceFromPayload(payload);
 
   if (!prompt) {
     writeContext('## FastPath\n\n(no user prompt — skip retrieval)\n');
     return;
   }
+
+  // Remember the prompt so the Stop hook can label the session memory.
+  updateWorkspaceState(workspace, {
+    lastPrompt: prompt.slice(0, 500),
+    lastPromptAt: new Date().toISOString(),
+  });
 
   const delta = await maybeDeltaReindex(workspace);
 
@@ -179,6 +188,9 @@ async function run(): Promise<void> {
     '',
   ];
 
+  const hint = routingHint(prompt, hits.map((h) => h.path));
+  if (hint) lines.push(hint, '');
+
   if (!hits.length) {
     lines.push(
       '(no strong matches — ask user for a file path or symbol name; do not scan the repo)',
@@ -190,6 +202,14 @@ async function run(): Promise<void> {
     lines.push(`- **${hit.symbol ?? hit.kind ?? 'hit'}** — \`${loc}\``);
     if (hit.snippet) {
       lines.push('```', hit.snippet.slice(0, SNIPPET_MAX_CHARS), '```');
+    }
+  }
+
+  const memories = await recallRelevantMemories(workspace, prompt);
+  if (memories.length) {
+    lines.push('', '## FastPath memory (auto-injected)', '');
+    for (const m of memories) {
+      lines.push(`- (${m.kind}) ${m.text.slice(0, MEMORY_SNIPPET_MAX_CHARS)}`);
     }
   }
 

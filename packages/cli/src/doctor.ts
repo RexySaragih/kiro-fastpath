@@ -56,12 +56,19 @@ function listMarkdownFiles(dir: string): string[] {
 export function assertBuiltArtifacts(root = PACKAGE_ROOT): string[] {
   const missing: string[] = [];
   const mcpServerPath = join(root, 'packages/mcp-server/dist/index.js');
-  const injectScript = join(root, 'packages/cli/dist/prompt-inject.js');
   if (!existsSync(mcpServerPath)) {
     missing.push(`MCP server missing: ${mcpServerPath} (npm run build)`);
   }
-  if (!existsSync(injectScript)) {
-    missing.push(`prompt-inject missing: ${injectScript} (npm run build)`);
+  const hookScripts = [
+    'prompt-inject.js',
+    'session-start.js',
+    'file-event.js',
+    'guardrail.js',
+    'memory-capture.js',
+  ];
+  for (const script of hookScripts) {
+    const p = join(root, 'packages/cli/dist', script);
+    if (!existsSync(p)) missing.push(`hook script missing: ${p} (npm run build)`);
   }
   return missing;
 }
@@ -292,6 +299,7 @@ export async function runDoctor(workspace: string): Promise<DoctorResult> {
   }
 
   const agentsDir = join(workspace, '.kiro/agents');
+  checkAgentFile('Router', join(agentsDir, 'Router.md'), issues, ok);
   checkAgentFile('Scout', join(agentsDir, 'Scout.md'), issues, ok);
   checkAgentFile('Architect', join(agentsDir, 'Architect.md'), issues, ok);
 
@@ -376,6 +384,26 @@ export async function runDoctor(workspace: string): Promise<DoctorResult> {
           hookEnabled = true;
           ok.push('UserPromptSubmit auto-inject hook installed');
         }
+
+        const eventTriggers = [
+          'SessionStart',
+          'PostFileSave',
+          'PostFileCreate',
+          'PostFileDelete',
+          'PreToolUse',
+          'Stop',
+        ];
+        const present = eventTriggers.filter((t) =>
+          hookJson.hooks?.some((h) => h.trigger === t),
+        );
+        if (present.length === eventTriggers.length) {
+          ok.push('Event hooks installed (session-start, file delta, guardrail)');
+        } else {
+          const missing = eventTriggers.filter((t) => !present.includes(t));
+          notes.push(
+            `Event hooks missing (${missing.join(', ')}) — re-run \`fastpath install-kiro\` for save-time freshness + guardrail`,
+          );
+        }
       } catch {
         issues.push('fastpath-context.json is not valid JSON');
       }
@@ -431,13 +459,16 @@ export async function runDoctor(workspace: string): Promise<DoctorResult> {
     try {
       const hits = await searchIndex(workspace, 'function', { topK: 2 });
       const symbols = lookupSymbol(workspace, 'a', { topK: 1 });
-      searchSmokeOk = hits.length > 0 || symbols.length >= 0;
-      if (hits.length > 0) {
-        ok.push(`Search smoke OK (${hits.length} hit(s) for "function")`);
+      searchSmokeOk = hits.length > 0 || symbols.length > 0;
+      if (searchSmokeOk) {
+        ok.push(
+          `Search smoke OK (${hits.length} search hit(s), ${symbols.length} symbol hit(s))`,
+        );
       } else {
-        ok.push('Search smoke OK (index queryable; 0 hits for "function")');
+        issues.push(
+          'Search smoke returned no results despite non-empty index — try `fastpath index --rebuild`',
+        );
       }
-      void symbols;
     } catch (err) {
       searchSmokeOk = false;
       issues.push(

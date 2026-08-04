@@ -69,6 +69,17 @@ export {
 export { buildAllNgrams, buildCovering, ngramHash } from './ngram/sparse.js';
 export { watchWorkspace, type WatchOptions } from './watch/watcher.js';
 export {
+  saveMemory,
+  recallMemories,
+  listMemories,
+  forgetMemory,
+  distillMemories,
+  MEMORY_KINDS,
+  type MemoryEntry,
+  type MemoryKind,
+  type SaveMemoryInput,
+} from './memory/store.js';
+export {
   tryEnableSqliteVec,
   sqliteVecAvailable,
   lshCandidateIds,

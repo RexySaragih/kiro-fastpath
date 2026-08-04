@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createRequire } from 'node:module';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -10,6 +11,12 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { warnIfRepoDotEnvPresent } from './clients/base-client.js';
 import { FastpathClient } from './clients/fastpath-client.js';
+import {
+  handleMemoryRecall,
+  handleMemorySave,
+  memoryRecallTool,
+  memorySaveTool,
+} from './tools/memory.js';
 import {
   contextForTaskTool,
   grepFastTool,
@@ -25,7 +32,18 @@ import {
 } from './tools/search.js';
 
 const SERVER_NAME = 'fastpath-mcp';
-const SERVER_VERSION = '0.2.0';
+
+function readServerVersion(): string {
+  try {
+    const require = createRequire(import.meta.url);
+    const pkg = require('../package.json') as { version?: string };
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+const SERVER_VERSION = readServerVersion();
 
 const server = new Server(
   { name: SERVER_NAME, version: SERVER_VERSION },
@@ -47,6 +65,8 @@ async function start(): Promise<void> {
     contextForTaskTool,
     grepFastTool,
     impactTool,
+    memorySaveTool,
+    memoryRecallTool,
   ];
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
@@ -72,6 +92,12 @@ async function start(): Promise<void> {
           break;
         case 'impact':
           result = await handleImpact(client, args);
+          break;
+        case 'memory_save':
+          result = await handleMemorySave(client, args);
+          break;
+        case 'memory_recall':
+          result = await handleMemoryRecall(client, args);
           break;
         default:
           throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);

@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import { HASH_EMBED_DIM } from '../embed/hash.js';
 
 /** Bump when on-disk shape changes; doctor refuses silent lies. */
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 /** Wait this long on SQLITE_BUSY before failing (watch + inject + index). */
 export const SQLITE_BUSY_TIMEOUT_MS = 5000;
@@ -124,6 +124,26 @@ function migrate(db: Database.Database): void {
       path,
       body
     );
+
+    CREATE TABLE IF NOT EXISTS memories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,
+      text TEXT NOT NULL,
+      tags TEXT NOT NULL DEFAULT '',
+      paths TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      last_used_at TEXT,
+      use_count INTEGER NOT NULL DEFAULT 0,
+      embedding BLOB
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_memories_kind ON memories(kind);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+      text,
+      tags,
+      paths
+    );
   `);
 
   const existingDim = getMeta(db, 'embed_dim');
@@ -134,11 +154,21 @@ function migrate(db: Database.Database): void {
   if (!verRaw || Number.isNaN(ver)) {
     setMeta(db, 'schema_version', String(CURRENT_SCHEMA_VERSION));
   } else if (ver < CURRENT_SCHEMA_VERSION) {
-    // Step migrations go here when CURRENT_SCHEMA_VERSION increases.
+    for (let v = ver + 1; v <= CURRENT_SCHEMA_VERSION; v++) {
+      STEP_MIGRATIONS.get(v)?.(db);
+    }
     setMeta(db, 'schema_version', String(CURRENT_SCHEMA_VERSION));
   }
   // If ver > CURRENT_SCHEMA_VERSION, leave as-is — doctor will flag.
 }
+
+/**
+ * In-place step migrations keyed by target version, applied in order on open.
+ * The base DDL above is idempotent (CREATE IF NOT EXISTS), so steps are only
+ * needed for transforms it cannot express (column adds, backfills, renames).
+ * v5 (memories tables) is purely additive — no step required.
+ */
+const STEP_MIGRATIONS: ReadonlyMap<number, (db: Database.Database) => void> = new Map();
 
 export function getSchemaVersion(db: Database.Database): number {
   const raw = getMeta(db, 'schema_version');

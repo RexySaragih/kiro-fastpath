@@ -3,13 +3,83 @@
   "hooks": [
     {
       "name": "fastpath-auto-context",
-      "description": "On every user prompt, inject FastPath index hits into agent context (exit 0 STDOUT). Deterministic — no LLM credits.",
+      "description": "On every user prompt, inject FastPath index hits + memories into agent context (exit 0 STDOUT). Deterministic — no LLM credits.",
       "trigger": "UserPromptSubmit",
       "action": {
         "type": "command",
         "command": "__FASTPATH_INJECT__"
       },
       "timeout": 20,
+      "enabled": true
+    },
+    {
+      "name": "fastpath-session-start",
+      "description": "On session start: warm embedder, catch up git-changed files, inject index status.",
+      "trigger": "SessionStart",
+      "action": {
+        "type": "command",
+        "command": "__FASTPATH_SESSION_START__"
+      },
+      "timeout": 30,
+      "enabled": true
+    },
+    {
+      "name": "fastpath-file-save",
+      "description": "Delta-index a file the moment the agent saves it — keeps retrieval fresh without prompt-time scans.",
+      "trigger": "PostFileSave",
+      "matcher": "\\.(ts|tsx|js|jsx|mjs|cjs|py|go)$",
+      "action": {
+        "type": "command",
+        "command": "__FASTPATH_FILE_EVENT__"
+      },
+      "timeout": 30,
+      "enabled": true
+    },
+    {
+      "name": "fastpath-file-create",
+      "description": "Delta-index newly created files.",
+      "trigger": "PostFileCreate",
+      "matcher": "\\.(ts|tsx|js|jsx|mjs|cjs|py|go)$",
+      "action": {
+        "type": "command",
+        "command": "__FASTPATH_FILE_EVENT__"
+      },
+      "timeout": 30,
+      "enabled": true
+    },
+    {
+      "name": "fastpath-file-delete",
+      "description": "Remove deleted files from the index.",
+      "trigger": "PostFileDelete",
+      "matcher": "\\.(ts|tsx|js|jsx|mjs|cjs|py|go)$",
+      "action": {
+        "type": "command",
+        "command": "__FASTPATH_FILE_EVENT_DELETE__"
+      },
+      "timeout": 15,
+      "enabled": true
+    },
+    {
+      "name": "fastpath-memory-capture",
+      "description": "At turn end, save a compact session memory (task + edited files) for future recall. Deterministic — no LLM credits.",
+      "trigger": "Stop",
+      "action": {
+        "type": "command",
+        "command": "__FASTPATH_MEMORY_CAPTURE__"
+      },
+      "timeout": 15,
+      "enabled": true
+    },
+    {
+      "name": "fastpath-guardrail",
+      "description": "Discourage repo walking: logs directory-walk tool calls; blocks repeat offenders (FASTPATH_GUARDRAIL=off|warn|block|auto).",
+      "trigger": "PreToolUse",
+      "matcher": "(?i)(listDirectory|list_directory|fileSearch|file_search|findFiles|find_files|glob|directorySearch)",
+      "action": {
+        "type": "command",
+        "command": "__FASTPATH_GUARDRAIL__"
+      },
+      "timeout": 10,
       "enabled": true
     }
   ]

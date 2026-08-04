@@ -11,7 +11,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && chmod +x dist/index.js dist/prompt-inject.js"
+    "build": "tsc -p tsconfig.json && chmod +x dist/index.js dist/prompt-inject.js dist/session-start.js dist/file-event.js dist/guardrail.js dist/memory-capture.js"
   },
   "dependencies": {
     "@fastpath/core": "1.0.0"

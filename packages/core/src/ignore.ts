@@ -11,19 +11,33 @@ function loadPatternFile(workspace: string, name: string): string[] {
     .filter((line) => line && !line.startsWith('#'));
 }
 
+interface IgnoreRule {
+  regex: RegExp;
+  negated: boolean;
+}
+
 function patternToRegex(pattern: string): RegExp {
   let p = pattern.replace(/\\/g, '/');
+  // Leading slash anchors to the workspace root (gitignore semantics).
+  const anchored = p.startsWith('/');
+  if (anchored) p = p.slice(1);
   if (p.endsWith('/')) p = p.slice(0, -1);
   const escaped = p
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
     .replace(/\*\*/g, ':::GLOBSTAR:::')
     .replace(/\*/g, '[^/]*')
     .replace(/:::GLOBSTAR:::/g, '.*');
-  return new RegExp(`(^|/)${escaped}(/|$)`);
+  return anchored ? new RegExp(`^${escaped}(/|$)`) : new RegExp(`(^|/)${escaped}(/|$)`);
+}
+
+function toRule(pattern: string): IgnoreRule {
+  const negated = pattern.startsWith('!');
+  const body = negated ? pattern.slice(1) : pattern;
+  return { regex: patternToRegex(body), negated };
 }
 
 export class IgnoreMatcher {
-  private readonly regexes: RegExp[];
+  private readonly rules: IgnoreRule[];
 
   constructor(workspace: string) {
     const patterns = [
@@ -32,12 +46,17 @@ export class IgnoreMatcher {
       ...loadPatternFile(workspace, '.kiroignore'),
       ...loadPatternFile(workspace, '.fastpathignore'),
     ];
-    this.regexes = patterns.map(patternToRegex);
+    this.rules = patterns.map(toRule);
   }
 
   ignores(workspace: string, absolutePath: string): boolean {
     const rel = relative(workspace, absolutePath).split(sep).join('/');
     if (!rel || rel.startsWith('..')) return true;
-    return this.regexes.some((re) => re.test(rel));
+    // gitignore semantics: the last matching rule wins.
+    let ignored = false;
+    for (const rule of this.rules) {
+      if (rule.regex.test(rel)) ignored = !rule.negated;
+    }
+    return ignored;
   }
 }

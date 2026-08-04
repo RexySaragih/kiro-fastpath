@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
-import { openDatabase } from '../db/schema.js';
+import { getMeta, openDatabase } from '../db/schema.js';
 import { embedQuery } from '../embed/backend.js';
 import { blobToVec, cosine } from '../embed/hash.js';
 import { resolveDbPath } from '../index/indexer.js';
@@ -114,6 +114,25 @@ function lexicalSearch(
   return hits.slice(0, topK);
 }
 
+let mismatchWarned = false;
+
+/** Guard against comparing query vectors from a different backend/dim than the index. */
+function embedDimMatchesIndex(db: Database.Database, queryDim: number): boolean {
+  const raw = getMeta(db, 'embed_dim');
+  if (!raw) return true;
+  const indexDim = Number(raw);
+  if (Number.isNaN(indexDim) || indexDim === queryDim) return true;
+  if (!mismatchWarned) {
+    mismatchWarned = true;
+    console.error(
+      `[fastpath] embed backend mismatch: index dim=${indexDim}, query dim=${queryDim}. ` +
+        `Falling back to lexical search. Re-index with matching FASTPATH_EMBED or run ` +
+        `\`fastpath index --rebuild\`.`,
+    );
+  }
+  return false;
+}
+
 async function vectorSearch(
   db: Database.Database,
   query: string,
@@ -121,6 +140,7 @@ async function vectorSearch(
   pathPrefix?: string,
 ): Promise<SearchHit[]> {
   const q = await embedQuery(query);
+  if (!embedDimMatchesIndex(db, q.length)) return [];
 
   if (sqliteVecAvailable(db)) {
     const rows = querySqliteVec(db, q, topK * 3);

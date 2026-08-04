@@ -232,7 +232,15 @@ async function indexOneFile(
   return 'indexed';
 }
 
-function openIndexContext(workspace: string): IndexContext & {
+/**
+ * Open an index context. When `prewalkedFiles` (abs paths) is provided it seeds
+ * `knownFiles`; otherwise known files come from the DB — this keeps single-file
+ * deltas (watch / hooks / prompt-inject) from walking the whole tree.
+ */
+function openIndexContext(
+  workspace: string,
+  prewalkedFiles?: string[],
+): IndexContext & {
   dbPath: string;
   embedBackend: string;
   embedDim: number;
@@ -242,11 +250,17 @@ function openIndexContext(workspace: string): IndexContext & {
   const dbPath = resolveDbPath(workspace);
   const db = openDatabase(dbPath);
   const vecEnabled = tryEnableSqliteVec(db, embedDim);
-  const files = walkIndexableFiles(workspace);
+  const knownFiles = prewalkedFiles
+    ? new Set(prewalkedFiles.map((f) => toRel(workspace, f)))
+    : new Set(
+        (db.prepare(`SELECT path FROM files`).all() as Array<{ path: string }>).map(
+          (r) => r.path,
+        ),
+      );
   return {
     db,
     workspace,
-    knownFiles: new Set(files.map((f) => toRel(workspace, f))),
+    knownFiles,
     vecEnabled,
     dbPath,
     embedBackend,
@@ -305,6 +319,7 @@ export async function indexWorkspacePaths(
   let filesSkipped = 0;
 
   const unique = [...new Set(absPaths.map((p) => resolve(p)))];
+  for (const abs of unique) ctx.knownFiles.add(toRel(workspace, abs));
   for (const abs of unique) {
     const result = await indexOneFile(ctx, abs, { force: true });
     if (result === 'indexed') filesIndexed += 1;
@@ -317,8 +332,8 @@ export async function indexWorkspacePaths(
 /** Full workspace index with hash skip + prune. */
 export async function indexWorkspace(workspace: string): Promise<IndexResult> {
   await warmEmbedder();
-  const ctx = openIndexContext(workspace);
   const files = walkIndexableFiles(workspace);
+  const ctx = openIndexContext(workspace, files);
   let filesIndexed = 0;
   let filesSkipped = 0;
 
@@ -331,10 +346,13 @@ export async function indexWorkspace(workspace: string): Promise<IndexResult> {
   return finalizeIndex(ctx, filesIndexed, filesSkipped, true);
 }
 
-/** Find indexable files whose content hash differs from the DB (capped). */
+/**
+ * Find indexable files whose content differs from the DB (capped).
+ * mtime+size are checked first so unchanged files skip the read+hash entirely.
+ */
 export function findDirtyFiles(
   workspace: string,
-  maxFiles = IndexLimits.DELTA_MAX_FILES,
+  maxFiles: number = IndexLimits.DELTA_MAX_FILES,
 ): string[] {
   const dbPath = resolveDbPath(workspace);
   if (!existsSync(dbPath)) return walkIndexableFiles(workspace).slice(0, maxFiles);
@@ -342,15 +360,27 @@ export function findDirtyFiles(
   const db = openDatabase(dbPath, { create: false });
   const dirty: string[] = [];
   try {
-    const existing = db.prepare(`SELECT hash FROM files WHERE path = ?`);
+    const existing = db.prepare(
+      `SELECT hash, mtime_ms, size FROM files WHERE path = ?`,
+    );
     for (const abs of walkIndexableFiles(workspace)) {
       if (dirty.length >= maxFiles) break;
       try {
-        const content = readFileSync(abs, 'utf8');
-        if (content.length > IndexLimits.MAX_FILE_BYTES) continue;
+        const st = statSync(abs);
+        if (st.size > IndexLimits.MAX_FILE_BYTES) continue;
         const rel = toRel(workspace, abs);
-        const prev = existing.get(rel) as { hash: string } | undefined;
-        if (!prev || prev.hash !== fileHash(content)) dirty.push(abs);
+        const prev = existing.get(rel) as
+          | { hash: string; mtime_ms: number; size: number }
+          | undefined;
+        if (!prev) {
+          dirty.push(abs);
+          continue;
+        }
+        if (prev.mtime_ms === Math.floor(st.mtimeMs) && prev.size === st.size) {
+          continue;
+        }
+        const content = readFileSync(abs, 'utf8');
+        if (prev.hash !== fileHash(content)) dirty.push(abs);
       } catch {
         /* skip unreadable */
       }

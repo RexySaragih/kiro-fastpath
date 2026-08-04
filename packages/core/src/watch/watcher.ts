@@ -2,6 +2,7 @@ import { existsSync, watch, type FSWatcher } from 'node:fs';
 import { relative, resolve, sep } from 'node:path';
 import { IgnoreMatcher } from '../ignore.js';
 import {
+  findDirtyFiles,
   getIndexStats,
   indexWorkspacePaths,
   removeIndexedPaths,
@@ -19,6 +20,9 @@ export interface WatchOptions {
 }
 
 const DEFAULT_DEBOUNCE_MS = 400;
+/** Polling cadence when recursive fs.watch is unavailable (older Linux/Node). */
+const POLL_INTERVAL_MS = 3_000;
+const POLL_MAX_FILES = 50;
 
 function isIndexable(relPath: string): boolean {
   const base = relPath.split('/').pop() ?? '';
@@ -98,12 +102,10 @@ export function watchWorkspace(
   try {
     watcher = watch(root, { recursive: true }, onEvent);
   } catch (err) {
+    // Recursive fs.watch unsupported (older Linux/Node) — fall back to
+    // hash-based dirty polling so `fastpath watch` still works everywhere.
     options.onError?.(err);
-    return {
-      close: () => {
-        closed = true;
-      },
-    };
+    return startPollingFallback(root, options);
   }
 
   watcher.on('error', (err) => options.onError?.(err));
@@ -114,5 +116,35 @@ export function watchWorkspace(
       if (timer) clearTimeout(timer);
       watcher.close();
     },
+  };
+}
+
+function startPollingFallback(
+  root: string,
+  options: WatchOptions,
+): { close: () => void } {
+  let running = false;
+  const interval = setInterval(async () => {
+    if (running) return;
+    running = true;
+    try {
+      const dirty = findDirtyFiles(root, POLL_MAX_FILES);
+      if (dirty.length) {
+        const result = await indexWorkspacePaths(root, dirty);
+        options.onIndexed?.(
+          { ...result, removed: 0 },
+          dirty.map((p) => relative(root, p).split(sep).join('/')),
+        );
+      }
+    } catch (err) {
+      options.onError?.(err);
+    } finally {
+      running = false;
+    }
+  }, POLL_INTERVAL_MS);
+  interval.unref?.();
+
+  return {
+    close: () => clearInterval(interval),
   };
 }

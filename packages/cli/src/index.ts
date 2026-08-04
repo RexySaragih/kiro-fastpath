@@ -11,9 +11,12 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
+  distillMemories,
+  forgetMemory,
   getIndexStats,
   indexGitChanged,
   indexWorkspace,
+  listMemories,
   McpTimeouts,
   resolveDbPath,
   watchWorkspace,
@@ -44,7 +47,7 @@ const ROOT = PACKAGE_ROOT;
 const AGENT_PACK = join(ROOT, 'packages/agent-pack');
 
 /** IDE agents only — Scout.json removed (dual-source drift). */
-const AGENT_TEMPLATES = ['Scout.md', 'Architect.md'] as const;
+const AGENT_TEMPLATES = ['Router.md', 'Scout.md', 'Architect.md'] as const;
 
 function usage(): never {
   const ver = readPackageVersion();
@@ -64,6 +67,7 @@ Usage:
   fastpath upgrade                       git pull + npm ci + build in FASTPATH_HOME
   fastpath repair-native                 Rebuild better-sqlite3 / onnx / sharp
   fastpath home|version|metrics [--summary]
+  fastpath memory list|forget <id>|distill [workspace]
 
 Env:
   FASTPATH_HOME        Install root (default ~/kiro-fastpath)
@@ -91,9 +95,10 @@ function printKiroChecklist(): void {
   console.log('Kiro checklist:');
   console.log('  1) Reload window (Cmd+Shift+P → Developer: Reload Window)');
   console.log('  2) Trust workspace if prompted (required for .kiro/agents)');
-  console.log('  3) Chat agent picker → Workspace → Scout (daily) or Architect');
-  console.log('  4) Hook UI → enable fastpath-auto-context');
-  console.log('  5) Effort: Scout → /effort low · Architect → /effort medium');
+  console.log('  3) Chat agent picker → Workspace → Router (default; auto-delegates)');
+  console.log('     Or drive directly: Scout (small edits) / Architect (multi-file)');
+  console.log('  4) Hook UI → enable all fastpath-* hooks');
+  console.log('  5) Effort: Router/Scout → /effort low · Architect → /effort medium');
 }
 
 function cmdInit(workspace: string): void {
@@ -225,15 +230,22 @@ function shellSingleQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-function buildInjectCommand(workspace: string, home: string, injectScript: string): string {
+function buildHookCommand(
+  workspace: string,
+  home: string,
+  script: string,
+  extraArgs = '',
+): string {
   // FASTPATH_HOME set for path hardening; node still gets absolute script (shell-safe).
-  return [
+  const parts = [
     `FASTPATH_HOME=${shellSingleQuote(home)}`,
     `FASTPATH_WORKSPACE=${shellSingleQuote(workspace)}`,
     'FASTPATH_EMBED=minilm',
     'FASTPATH_RERANK=on',
-    `node ${shellSingleQuote(injectScript)}`,
-  ].join(' ');
+    `node ${shellSingleQuote(script)}`,
+  ];
+  if (extraArgs) parts.push(extraArgs);
+  return parts.join(' ');
 }
 
 function assertIdeCompatibleAgentFile(path: string, body: string): void {
@@ -300,8 +312,28 @@ function cmdInstallKiro(workspace: string): void {
   mkdirSync(hooksDir, { recursive: true });
 
   const mcpServerPath = join(ROOT, 'packages/mcp-server/dist/index.js');
-  const injectScript = join(ROOT, 'packages/cli/dist/prompt-inject.js');
-  const injectCmd = buildInjectCommand(workspace, home, injectScript);
+  const cliDist = join(ROOT, 'packages/cli/dist');
+  const hookCommands = {
+    __FASTPATH_INJECT__: buildHookCommand(workspace, home, join(cliDist, 'prompt-inject.js')),
+    __FASTPATH_SESSION_START__: buildHookCommand(
+      workspace,
+      home,
+      join(cliDist, 'session-start.js'),
+    ),
+    __FASTPATH_FILE_EVENT__: buildHookCommand(workspace, home, join(cliDist, 'file-event.js')),
+    __FASTPATH_FILE_EVENT_DELETE__: buildHookCommand(
+      workspace,
+      home,
+      join(cliDist, 'file-event.js'),
+      '--delete',
+    ),
+    __FASTPATH_GUARDRAIL__: buildHookCommand(workspace, home, join(cliDist, 'guardrail.js')),
+    __FASTPATH_MEMORY_CAPTURE__: buildHookCommand(
+      workspace,
+      home,
+      join(cliDist, 'memory-capture.js'),
+    ),
+  };
 
   try {
     installAgentTemplates(workspace, agentsDir, home, mcpServerPath);
@@ -319,7 +351,7 @@ function cmdInstallKiro(workspace: string): void {
     join(AGENT_PACK, 'hooks', 'fastpath-context.json'),
     'utf8',
   );
-  const hookBody = fillPlaceholders(hookTemplate, { __FASTPATH_INJECT__: injectCmd });
+  const hookBody = fillPlaceholders(hookTemplate, hookCommands);
   try {
     JSON.parse(hookBody);
   } catch {
@@ -347,6 +379,8 @@ function cmdInstallKiro(workspace: string): void {
       'context_for_task',
       'grep_fast',
       'impact',
+      'memory_save',
+      'memory_recall',
     ],
   };
 
@@ -382,15 +416,16 @@ function cmdInstallKiro(workspace: string): void {
 
   console.log(`Installed Kiro FastPath pack into ${workspace}`);
   console.log(`FastPath home: ${home}`);
-  console.log('- .kiro/agents/Scout.md (daily work)');
-  console.log('- .kiro/agents/Architect.md (multi-file features)');
+  console.log('- .kiro/agents/Router.md (default — auto-routes to Scout/Architect)');
+  console.log('- .kiro/agents/Scout.md (small edits, /scout)');
+  console.log('- .kiro/agents/Architect.md (multi-file features, /architect)');
   console.log('- .kiro/steering/fastpath.md (always-on)');
-  console.log('- .kiro/hooks/fastpath-context.json (UserPromptSubmit → auto-inject)');
+  console.log('- .kiro/hooks/fastpath-context.json (inject + session + file-delta + guardrail)');
   console.log('- .kiro/settings/mcp.json (fastpath server)');
   console.log('');
   console.log('Critical:');
-  console.log('1) Select agent "Scout" (daily) or "Architect" (bigger changes)');
-  console.log('2) Confirm hook "fastpath-auto-context" is enabled in Kiro Hook UI');
+  console.log('1) Select agent "Router" (default) — or Scout/Architect directly');
+  console.log('2) Confirm all fastpath-* hooks are enabled in Kiro Hook UI');
   console.log('3) Run: fastpath warm && FASTPATH_EMBED=minilm fastpath index && fastpath doctor');
   console.log('4) Optional long sessions: fastpath watch');
   console.log('5) Disable other MCP servers for daily coding');
@@ -400,6 +435,7 @@ function cmdInstallKiro(workspace: string): void {
 function cmdUnwire(workspace: string, purgeIndex: boolean): void {
   const agentsDir = join(workspace, '.kiro/agents');
   for (const name of [
+    'Router.md',
     'Scout.md',
     'Architect.md',
     'Scout.json',
@@ -534,6 +570,46 @@ async function cmdEval(office: boolean): Promise<void> {
   process.exit(result.failed.length ? 2 : 0);
 }
 
+async function cmdMemory(args: string[]): Promise<void> {
+  const [sub, ...restArgs] = args;
+  const workspace = workspaceFromArgs(restArgs.filter((a) => !/^\d+$/.test(a)));
+
+  switch (sub) {
+    case 'list': {
+      const memories = listMemories(workspace);
+      if (!memories.length) {
+        console.log('No memories yet.');
+        return;
+      }
+      for (const m of memories) {
+        const paths = m.paths.length ? ` [${m.paths.join(', ')}]` : '';
+        console.log(`#${m.id} (${m.kind}, used ${m.useCount}x) ${m.text}${paths}`);
+      }
+      return;
+    }
+    case 'forget': {
+      const id = Number(restArgs.find((a) => /^\d+$/.test(a)));
+      if (!Number.isInteger(id)) {
+        console.error('usage: fastpath memory forget <id> [workspace]');
+        process.exit(1);
+      }
+      console.log(forgetMemory(workspace, id) ? `Forgot memory #${id}` : `No memory #${id}`);
+      return;
+    }
+    case 'distill': {
+      const steeringDir = join(workspace, '.kiro/steering');
+      mkdirSync(steeringDir, { recursive: true });
+      const out = join(steeringDir, 'fastpath-memory.md');
+      writeFileSync(out, distillMemories(workspace));
+      console.log(`Distilled durable memories → ${out} (inclusion: manual)`);
+      return;
+    }
+    default:
+      console.error('usage: fastpath memory list|forget <id>|distill [workspace]');
+      process.exit(1);
+  }
+}
+
 async function main(): Promise<void> {
   const [, , cmd, ...rest] = process.argv;
   if (!cmd || cmd === '-h' || cmd === '--help') usage();
@@ -616,6 +692,9 @@ async function main(): Promise<void> {
       else console.log(JSON.stringify(events, null, 2));
       break;
     }
+    case 'memory':
+      await cmdMemory(rest);
+      break;
     default:
       usage();
   }

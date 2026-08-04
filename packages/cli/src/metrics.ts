@@ -24,6 +24,19 @@ export type MetricEvent =
       at: string;
       ready: boolean;
       issueCount: number;
+    }
+  | {
+      type: 'file-event';
+      at: string;
+      action: 'index' | 'delete';
+      files: number;
+      ms: number;
+    }
+  | {
+      type: 'session-start';
+      at: string;
+      gitDelta: number;
+      ms: number;
     };
 
 export function appendMetric(event: MetricEvent): void {

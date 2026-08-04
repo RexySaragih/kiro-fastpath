@@ -2,7 +2,7 @@
   <img src="brand/fastpath-logo.png" alt="FastPath — Scout finds the path, Architect frames it" width="420" />
 </p>
 
-# FastPath v1.0
+# Kiro FastPath
 
 Warm local hybrid code index + thin MCP + **Scout** / **Architect** agents for AWS Kiro (IDE and CLI).
 
@@ -11,6 +11,74 @@ Makes Kiro **retrieve → act** instead of packing the workspace and over-explor
 > Git repo: **kiro-fastpath**. Clone into `~/kiro-fastpath` on each machine. Not an `npx`-only MCP — needs a local home (index, MiniLM, inject hook, agents).
 
 Support matrix / release gate: `scripts/SUPPORT_MATRIX.txt`, `scripts/RELEASE_GATE.txt`, `scripts/CHANGELOG.txt`.
+
+## How it works
+
+Without FastPath, Kiro often walks your whole project looking for the right files. That burns a lot of tokens. FastPath builds a local map of your code once, then hands Kiro only the few files that matter for each question.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor You
+  participant Kiro
+  participant FastPath as FastPath<br/>(local helper)
+  participant Map as Local code map<br/>(on your machine)
+
+  Note over Map: One-time / background:<br/>scan project → keep a searchable map
+
+  You->>Kiro: Ask for a change or question
+  Kiro->>FastPath: New message arrived
+  FastPath->>Map: Find the few relevant files<br/>and any saved notes
+  Map-->>FastPath: Short list of paths + snippets
+  FastPath-->>Kiro: Inject that short list<br/>(not the whole repo)
+
+  alt Small edit (1–3 files)
+    Kiro->>Kiro: Hand off to Scout
+    Kiro->>You: Edit done
+  else Bigger change (many files)
+    Kiro->>Kiro: Hand off to Architect
+    Kiro->>You: Edit done
+  else Just a question
+    Kiro->>You: Answer from the short list
+  end
+
+  Note over Kiro,FastPath: If Kiro tries to list every folder,<br/>FastPath can block that and point it<br/>back at the map instead.
+
+  Kiro->>FastPath: Turn finished (files were edited)
+  FastPath->>Map: Remember what was done<br/>(for next time)
+```
+
+**In short:**
+
+1. FastPath keeps a **local map** of your project (and short notes from past turns).
+2. Every time you send a message, it **looks up** a few matching files — not the whole tree.
+3. Those results are **pasted into Kiro’s context** automatically.
+4. **Router** decides: answer itself, use **Scout** (small edit), or **Architect** (bigger work).
+5. When a turn ends, FastPath **remembers** what changed so the next session starts smarter.
+
+## How is this different?
+
+Same neighborhood as tools like [KiroGraph](https://github.com/davide-desio-eleva/kirograph) and common “memory” add-ons — but not the same job.
+
+| | FastPath | KiroGraph | Common memory tools |
+|---|---|---|---|
+| Main job | Stop Kiro from walking the whole repo | Give Kiro a deep map of how code connects | Remember what was said / decided across chats |
+| Knows where code lives? | Yes (search, symbols, snippets) | Yes, plus richer “who calls whom” analysis | Usually no |
+| Remembers past decisions? | Yes, but small and simple | Yes (optional, richer) | That’s their whole product |
+| Blocks wasteful folder listing? | Yes (guardrail) | Soft reminders / agent habits | No |
+| Ships ready agents (Router / Scout / Architect)? | Yes | No (tools for whatever agent you use) | No |
+
+**vs KiroGraph** — both keep a local map so Kiro doesn’t re-scan the tree. KiroGraph goes deep (call chains, dead code, architecture checks, optional heavy memory). FastPath stays thin: auto-paste a few hits into every prompt, route small vs big work, and block “list every folder.” Think atlas + lab vs GPS that only shows the next few turns.
+
+**vs common memory tools** (Mem0, Engram, cavemem, “remember this”, etc.) — those mostly answer *“what did we decide last week?”* They usually don’t answer *“which file has `validateJwt`?”* Without a code map, the agent still explores the tree — and that’s where most tokens go. FastPath’s notes are a small add-on on top of the code map; the map is the main savings.
+
+**When to pick what**
+
+- Daily locate-and-edit with fewer tokens → **FastPath**
+- Deep structural questions (impact, dead code, architecture) → **KiroGraph**
+- Chat / preference memory across products, no code index → a normal mem tool
+
+You can combine them in theory; for one tool, FastPath’s bet is **forced retrieval before exploration**, not the biggest knowledge graph.
 
 ## Architecture
 
@@ -24,52 +92,46 @@ Support matrix / release gate: `scripts/SUPPORT_MATRIX.txt`, `scripts/RELEASE_GA
 | Graph | Import edges + `call_edges` |
 | Symbols | web-tree-sitter (legacy TS/regex fallback) |
 | Freshness | Prompt-inject delta, `watch`, `index --git` |
-| Delivery | MCP stdio — 5 read-only tools |
-| Harness | Scout / Architect + steering + doctor |
-
-```text
-index (CLI) → SQLite / FTS / ngrams / vectors / call graph
-                ↓
-   UserPromptSubmit hook (auto-inject STDOUT)
-   + FastPath MCP (tools when needed)
-                ↓
-     Kiro Scout agent → edit
-```
+| Delivery | MCP stdio — 7 tools (search + memory) |
+| Harness | Router / Scout / Architect + steering + doctor |
 
 ## Make Kiro actually use the index
 
-Indexing alone does nothing. Kiro only uses FastPath when all three exist:
+Indexing alone does nothing. Kiro only uses FastPath when all four exist:
 
-1. **Auto-inject** — `.kiro/hooks/fastpath-context.json` on `UserPromptSubmit` (exit `0` STDOUT → context).
-2. **Tool binding** — Scout has inline `mcpServers.fastpath` + `tools: [..., "@fastpath"]`.
-3. **Behavior** — steering + Scout prompt: max ~3 file reads, no repo walks.
+1. **Auto-inject** — `.kiro/hooks/fastpath-context.json`: `UserPromptSubmit` injects retrieved code + memories + a routing hint; `SessionStart` warms and catches up git deltas; `PostFileSave/Create/Delete` keep the index fresh at save time; `Stop` captures a session memory.
+2. **Guardrail** — `PreToolUse` hook logs and (configurably) blocks directory-walk tools (`FASTPATH_GUARDRAIL=auto|warn|block|off`).
+3. **Tool binding** — agents have inline `mcpServers.fastpath` + `tools: [..., "@fastpath"]`.
+4. **Behavior** — steering + agent prompts: max ~3 file reads, no repo walks, recall memory before re-deriving.
 
-`install-target` / `use` / `install-kiro` install all three. Then select **Scout** and enable the hook in Kiro Hook UI.
+`install-target` / `use` / `install-kiro` install all of it. Then select **Router** and enable the hooks in Kiro Hook UI.
 
 ## Quick start (git — recommended)
 
 **Once per machine** (office or home):
 
 ```bash
-git clone <kiro-fastpath-url> ~/kiro-fastpath
-bash ~/kiro-fastpath/scripts/install-home.sh ~/kiro-fastpath
+# Keep a git checkout (e.g. Documents). Install copies it into ~/kiro-fastpath.
+git clone <kiro-fastpath-url> ~/Documents/kiro-fastpath
+unset FASTPATH_HOME   # important — never point home at the git checkout
+bash ~/Documents/kiro-fastpath/scripts/install-home.sh ~/Documents/kiro-fastpath
+source ~/.zshrc       # enables `fastpath` + FASTPATH_HOME=~/kiro-fastpath
 ```
 
-`install-home` takes the **kiro-fastpath** checkout — not your app repo.
+`install-home` takes the **kiro-fastpath** checkout — not your app repo. It copies into **`~/kiro-fastpath`** (separate from the git checkout), then puts `fastpath` on your PATH. **Do not** set `FASTPATH_HOME` to the same path as the checkout — that wipes the tree.
 
 **Per project workspace:**
 
 ```bash
-export FASTPATH_HOME=~/kiro-fastpath
 bash "$FASTPATH_HOME/scripts/install-target.sh" /path/to/your-repo
-# or: node "$FASTPATH_HOME/packages/cli/dist/index.js" use /path/to/your-repo
+# or: fastpath use /path/to/your-repo
 ```
 
 **In Kiro:**
 
 1. Reload window  
-2. Agent picker → **Workspace → Scout**  
-3. Hook UI → enable **fastpath-auto-context**  
+2. Agent picker → **Workspace → Router** (or Scout/Architect directly)  
+3. Hook UI → enable all **fastpath-\*** hooks  
 4. Disable other MCP servers for daily work  
 
 **Updates:**
@@ -104,10 +166,13 @@ bash scripts/install-target.sh /path/to/your/repo
 
 | Agent | Model | Effort (session) | Use for |
 |-------|-------|------------------|---------|
+| **Router** | `claude-sonnet-4.6` | `/effort low` | Default — answers questions from injected context, delegates edits to Scout/Architect subagents |
 | **Scout** | `claude-sonnet-4.6` | `/effort low` | Daily coding — locate → edit, max ~3 files |
 | **Architect** | `claude-sonnet-4.6` | `/effort medium` | Multi-file features (+ shell / subagent) |
 
 Kiro binds effort per session/model, not per agent — set `/effort` when you switch agents.
+
+**Speak short by default** (always-on steering): ~60–75% less prose — plain words, what matters only. Ask “explain” / “elaborate” when you want the long version.
 
 Do not add CLI-only fields (`allowedTools`, `includeMcpJson`) to agent markdown — Kiro IDE will hide the agent.
 
@@ -124,6 +189,7 @@ fastpath upgrade                          # pull + build FASTPATH_HOME
 fastpath repair-native                    # after Node upgrade
 fastpath eval [--office]
 fastpath home|version|metrics [--summary]
+fastpath memory list|forget <id>|distill [workspace]
 ```
 
 Env (also set by install into MCP/hook):

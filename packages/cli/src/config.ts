@@ -33,7 +33,8 @@ export function resolveFastpathHome(): string {
 }
 
 export function userFastpathDir(): string {
-  return join(homedir(), '.fastpath');
+  // Overridable for tests and sandboxed environments.
+  return process.env.FASTPATH_USER_DIR?.trim() || join(homedir(), '.fastpath');
 }
 
 export function configPath(): string {

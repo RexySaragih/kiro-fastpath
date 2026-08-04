@@ -11,10 +11,10 @@ Give Kiro a warm local hybrid index so agents **retrieve a few chunks then act**
 | Language | TypeScript (ESM) |
 | Transport | stdio |
 | Capabilities | tools only |
-| Posture | **read-only** (index writes via CLI only) |
+| Posture | read-only for code (index writes via CLI); `memory_save` writes to the local `.fastpath` memory store only |
 | Auth | none (local filesystem; workspace via `FASTPATH_WORKSPACE`) |
 | Output | compact markdown |
-| Scope | 5 tools |
+| Scope | 7 tools |
 | SDK | `@modelcontextprotocol/sdk@1.30.0` |
 
 ## credentials
@@ -35,8 +35,6 @@ Do not store secrets in project `.env` — use mcp.json `env` if configuration i
 | Var | Required | Description |
 |-----|----------|-------------|
 | `FASTPATH_WORKSPACE` | no | Workspace root (default: `process.cwd()`) |
-| `FASTPATH_TOP_K` | no | Soft default result hint |
-
 ## Tools
 
 ### 1. `search`
@@ -53,6 +51,12 @@ Sparse n-gram prefilter + regex verify. Params: `pattern`, `top_k?`, `path_prefi
 
 ### 5. `impact`
 Definitions + importers + references. Params: `name`, `depth?` (1–3), `top_k?`. Same annotations.
+
+### 6. `memory_save`
+Persist a project memory (decision / fact / preference / session) into `.fastpath/index.db`. Params: `kind`, `text`, `tags?`, `paths?`. Annotations: NOT readOnly (local store write), idempotent, not destructive, not openWorld.
+
+### 7. `memory_recall`
+FTS + embedding RRF recall over saved memories. Params: `query`, `top_k?` (max 10). Annotations: readOnly, idempotent, not openWorld, not destructive.
 
 ## Non-goals
 

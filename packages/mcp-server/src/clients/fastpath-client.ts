@@ -5,7 +5,11 @@ import {
   grepFast,
   impactForSymbol,
   lookupSymbol,
+  recallMemories,
+  saveMemory,
   searchIndex,
+  type MemoryEntry,
+  type SaveMemoryInput,
   type SearchHit,
 } from '@fastpath/core';
 import { sanitizeErrorMessage } from './base-client.js';
@@ -43,6 +47,14 @@ export class FastpathClient {
         topK: topK ?? DEFAULT_TOP_K,
       }),
     );
+  }
+
+  async memorySave(input: SaveMemoryInput): Promise<MemoryEntry> {
+    return saveMemory(this.workspace, input);
+  }
+
+  async memoryRecall(query: string, topK?: number): Promise<MemoryEntry[]> {
+    return recallMemories(this.workspace, query, topK);
   }
 
   wrapError(err: unknown): string {

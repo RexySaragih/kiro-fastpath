@@ -16,12 +16,21 @@ test('handlers markdown + validation', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'fastpath-mcp-test-'));
   try {
     cpSync(join(root, 'fixtures/sample-src'), join(dir, 'src'), { recursive: true });
-    indexWorkspace(dir);
+    await indexWorkspace(dir);
     const client = new FastpathClient(dir);
-    assert.equal(mod.handleSearch(client, {}).isError, true);
-    assert.match(mod.handleSearch(client, { query: 'AuthService' }).content[0].text, /search/);
-    assert.match(mod.handleGrepFast(client, { pattern: 'login' }).content[0].text, /grep/);
-    assert.match(mod.handleImpact(client, { name: 'AuthService' }).content[0].text, /impact/);
+    assert.equal((await mod.handleSearch(client, {})).isError, true);
+    assert.match(
+      (await mod.handleSearch(client, { query: 'AuthService' })).content[0].text,
+      /search/,
+    );
+    assert.match(
+      (await mod.handleGrepFast(client, { pattern: 'login' })).content[0].text,
+      /grep/,
+    );
+    assert.match(
+      (await mod.handleImpact(client, { name: 'AuthService' })).content[0].text,
+      /impact/,
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
