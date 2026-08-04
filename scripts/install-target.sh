@@ -2,11 +2,13 @@
 # FastPath — wire a Kiro workspace using FASTPATH_HOME (default ~/kiro-fastpath).
 #
 # Usage:
+#   ./scripts/install-target.sh                         # wire current directory
 #   ./scripts/install-target.sh /path/to/your/repo
 #   FASTPATH_HOME=~/kiro-fastpath ./scripts/install-target.sh /path/to/your-repo
 #   ./scripts/install-target.sh --skip-warm /path/to/your/repo
 #   ./scripts/install-target.sh --hash /path/to/your/repo   # CI/offline (no MiniLM)
 #
+# With no ARG: uses the current working directory as the target workspace.
 # Prefers an existing FASTPATH_HOME install. Falls back to this checkout.
 #
 set -euo pipefail
@@ -24,7 +26,7 @@ while [[ $# -gt 0 ]]; do
     --skip-warm) SKIP_WARM=1; shift ;;
     --hash) USE_HASH=1; SKIP_WARM=1; shift ;;
     -h|--help)
-      sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     -*)
@@ -37,7 +39,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$WORKSPACE" ]] || die "usage: $0 [--skip-warm|--hash] /path/to/repo"
+if [[ -z "$WORKSPACE" ]]; then
+  WORKSPACE="$(pwd)"
+  info "No workspace arg; using current directory: $WORKSPACE"
+fi
 WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

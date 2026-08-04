@@ -190,6 +190,7 @@ fastpath repair-native                    # after Node upgrade
 fastpath eval [--office]
 fastpath home|version|metrics [--summary]
 fastpath memory list|forget <id>|distill [workspace]
+fastpath viz [workspace] [--no-open] [--out file.html]   # local HTML dashboard of the index
 ```
 
 Env (also set by install into MCP/hook):
@@ -241,6 +242,7 @@ npm run test:connections
 npm run eval
 npm run audit:critical
 node packages/cli/dist/index.js doctor /path/to/your/repo
+fastpath viz /path/to/your/repo          # local HTML dashboard of the index
 ```
 
 Expect doctor: **SCOUT READY**.

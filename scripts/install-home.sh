@@ -2,13 +2,15 @@
 # Install FastPath into FASTPATH_HOME (default ~/kiro-fastpath) from a release zip or checkout.
 #
 # Usage:
+#   bash scripts/install-home.sh
 #   bash scripts/install-home.sh /path/to/kiro-fastpath-checkout
 #   bash scripts/install-home.sh /path/to/kiro-fastpath-0.3.0.zip
 #   bash scripts/install-home.sh --force /path/to/kiro-fastpath
 #   FASTPATH_HOME=~/kiro-fastpath bash scripts/install-home.sh ./kiro-fastpath
 #
-# ARG is the kiro-fastpath product repo (has packages/cli) — NOT your application repo.
-#
+# With no ARG: uses the checkout that contains this script, else the current directory
+# if it looks like FastPath. ARG is the kiro-fastpath product repo (has packages/cli) —
+# NOT your application repo.
 set -euo pipefail
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -21,7 +23,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --force|-f) FORCE=1; shift ;;
     -h|--help)
-      sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     -*)
@@ -34,9 +36,24 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$SRC" ]] || die "usage: $0 [--force] <kiro-fastpath-checkout-dir|release.zip>
+# Default source when omitted: script checkout, else cwd (if it looks like FastPath).
+if [[ -z "$SRC" ]]; then
+  SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  CWD="$(pwd)"
+  if [[ -f "$SCRIPT_ROOT/package.json" && -d "$SCRIPT_ROOT/packages/cli" ]]; then
+    SRC="$SCRIPT_ROOT"
+    info "No source arg; using script checkout: $SRC"
+  elif [[ -f "$CWD/package.json" && -d "$CWD/packages/cli" ]]; then
+    SRC="$CWD"
+    info "No source arg; using current directory: $SRC"
+  else
+    die "usage: $0 [--force] [kiro-fastpath-checkout-dir|release.zip]
+  No source given, and neither the script checkout nor cwd looks like FastPath.
   Example: $0 ~/Documents/kiro-fastpath
+  Or run from the kiro-fastpath repo / invoke scripts/install-home.sh with no args.
   Do NOT pass your application repo. Wire apps with install-target.sh next."
+  fi
+fi
 
 FASTPATH_HOME="${FASTPATH_HOME:-$HOME/kiro-fastpath}"
 FASTPATH_HOME="$(cd "$(dirname "$FASTPATH_HOME")" && pwd)/$(basename "$FASTPATH_HOME")"

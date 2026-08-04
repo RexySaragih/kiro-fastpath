@@ -42,6 +42,7 @@ import {
 } from './doctor.js';
 import { runBuiltinEval } from './eval.js';
 import { appendMetric, readMetrics, summarizeMetrics } from './metrics.js';
+import { runViz } from './viz.js';
 
 const ROOT = PACKAGE_ROOT;
 const AGENT_PACK = join(ROOT, 'packages/agent-pack');
@@ -68,6 +69,7 @@ Usage:
   fastpath repair-native                 Rebuild better-sqlite3 / onnx / sharp
   fastpath home|version|metrics [--summary]
   fastpath memory list|forget <id>|distill [workspace]
+  fastpath viz [workspace] [--no-open] [--out file.html]
 
 Env:
   FASTPATH_HOME        Install root (default ~/kiro-fastpath)
@@ -695,6 +697,36 @@ async function main(): Promise<void> {
     case 'memory':
       await cmdMemory(rest);
       break;
+    case 'viz': {
+      const noOpen = takeFlag(rest, '--no-open');
+      let args = noOpen.args;
+      let outPath: string | undefined;
+      const outIdx = args.indexOf('--out');
+      if (outIdx >= 0) {
+        outPath = args[outIdx + 1];
+        if (!outPath) {
+          console.error('usage: fastpath viz [workspace] [--no-open] [--out file.html]');
+          process.exit(1);
+        }
+        args = args.filter((_, i) => i !== outIdx && i !== outIdx + 1);
+      }
+      const workspace = workspaceFromArgs(args);
+      try {
+        const { outPath: written, data } = runViz({
+          workspace,
+          outPath: outPath ? resolve(outPath) : undefined,
+          openBrowser: !noOpen.set,
+        });
+        console.log(`FastPath viz → ${written}`);
+        console.log(
+          `files=${data.summary.files} symbols=${data.summary.symbols} calls=${data.summary.callEdges} memories=${data.summary.memories}`,
+        );
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : err);
+        process.exit(1);
+      }
+      break;
+    }
     default:
       usage();
   }

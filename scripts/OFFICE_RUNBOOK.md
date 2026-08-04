@@ -61,6 +61,7 @@ Re-run: fastpath repair-kiro /path/to/repo
 --------
   fastpath doctor /path/to/repo
   fastpath doctor /path/to/repo --json
+  fastpath viz /path/to/repo       # open local HTML dashboard of the index
   fastpath home
   fastpath metrics --summary
   fastpath repair-native          # after Node upgrade

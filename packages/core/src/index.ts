@@ -80,6 +80,14 @@ export {
   type SaveMemoryInput,
 } from './memory/store.js';
 export {
+  collectVizSnapshot,
+  type VizSnapshot,
+  type CountRow,
+  type HeavyFile,
+  type GraphNode,
+  type GraphEdge,
+} from './viz/snapshot.js';
+export {
   tryEnableSqliteVec,
   sqliteVecAvailable,
   lshCandidateIds,
