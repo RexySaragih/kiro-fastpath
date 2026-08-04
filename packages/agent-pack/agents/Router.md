@@ -2,7 +2,7 @@
 name: Router
 description: Default entry point. Routes each task to the right specialist — Scout for small locate-and-edit tasks, Architect for multi-file work — keeping the main context tiny.
 model: claude-sonnet-4.6
-tools: ["read", "subagent", "@fastpath"]
+tools: [read, subagent, "@fastpath"]
 mcpServers:
   fastpath:
     command: node
@@ -25,7 +25,8 @@ mcpServers:
       - memory_recall
 permissions:
   rules:
-    - capability: write
+    # Kiro capabilities are fs_write / fs_read / shell / … — not tool tags like "write".
+    - capability: fs_write
       effect: deny
     - capability: shell
       effect: deny

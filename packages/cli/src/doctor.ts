@@ -27,9 +27,19 @@ const coreRequire = createRequire(join(PACKAGE_ROOT, 'packages/core/package.json
 
 const IDE_UNSUPPORTED_AGENT_FIELDS = ['allowedTools', 'includeMcpJson', 'toolsSettings'] as const;
 
+/** Tool tags mistaken for permission capabilities (breaks Kiro agent-profile load). */
+const INVALID_PERMISSION_CAPABILITIES = ['write', 'read', 'web'] as const;
+
 export function findIdeUnsupportedAgentFields(body: string): string[] {
   return IDE_UNSUPPORTED_AGENT_FIELDS.filter((field) =>
     new RegExp(`\\b${field}\\b`).test(body),
+  );
+}
+
+/** Detect `capability: write` etc. — must be fs_write / fs_read / shell / … */
+export function findInvalidPermissionCapabilities(body: string): string[] {
+  return INVALID_PERMISSION_CAPABILITIES.filter((cap) =>
+    new RegExp(`capability:\\s*["']?${cap}["']?\\b`).test(body),
   );
 }
 
@@ -123,6 +133,12 @@ function checkAgentFile(
     );
   } else {
     ok.push(`${label} sets FASTPATH_HOME`);
+  }
+  const badCaps = findInvalidPermissionCapabilities(body);
+  if (badCaps.length) {
+    issues.push(
+      `${label} has invalid permission capability (${badCaps.join(', ')}) — use fs_write/fs_read/shell; re-run \`fastpath install-kiro\``,
+    );
   }
 }
 

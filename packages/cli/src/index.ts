@@ -37,6 +37,7 @@ import {
 import {
   assertBuiltArtifacts,
   findIdeUnsupportedAgentFields,
+  findInvalidPermissionCapabilities,
   printDoctor,
   runDoctor,
 } from './doctor.js';
@@ -252,11 +253,19 @@ function buildHookCommand(
 
 function assertIdeCompatibleAgentFile(path: string, body: string): void {
   const bad = findIdeUnsupportedAgentFields(body);
-  if (!bad.length) return;
-  throw new Error(
-    `${path} contains IDE-unsupported fields (${bad.join(', ')}). ` +
-      `Kiro IDE will hide the agent — remove them from packages/agent-pack.`,
-  );
+  if (bad.length) {
+    throw new Error(
+      `${path} contains IDE-unsupported fields (${bad.join(', ')}). ` +
+        `Kiro IDE will hide the agent — remove them from packages/agent-pack.`,
+    );
+  }
+  const badCaps = findInvalidPermissionCapabilities(body);
+  if (badCaps.length) {
+    throw new Error(
+      `${path} has invalid permission capability (${badCaps.join(', ')}). ` +
+        `Use fs_write / fs_read / shell / subagent — not tool tags like write/read.`,
+    );
+  }
 }
 
 function installAgentTemplates(

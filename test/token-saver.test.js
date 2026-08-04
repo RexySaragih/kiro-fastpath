@@ -138,6 +138,8 @@ test('Install: all event hooks + Router agent wired with no placeholders', () =>
     const router = readFileSync(join(dir, '.kiro/agents/Router.md'), 'utf8');
     assert.match(router, /name:\s*Router/);
     assert.match(router, /subagent/);
+    assert.match(router, /capability:\s*fs_write/);
+    assert.doesNotMatch(router, /capability:\s*write\b/);
     assert.doesNotMatch(router, /__FASTPATH_/);
     assert.match(router, /memory_recall/);
 
