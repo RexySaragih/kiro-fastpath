@@ -55,6 +55,8 @@ export interface IndexStats {
 export interface SearchOptions {
   topK?: number;
   pathPrefix?: string;
+  /** Cap the rerank candidate set (inject path uses a tighter budget). */
+  rerankCandidates?: number;
 }
 
 export const DEFAULT_TOP_K = 8;
@@ -76,6 +78,8 @@ export const IndexLimits = {
   MAX_COVERING_NGRAMS: 8,
   DELTA_MAX_FILES: 20,
   RERANK_CANDIDATES: 20,
+  /** Tighter candidate set on the prompt-inject path — it has a 3s budget. */
+  RERANK_CANDIDATES_INJECT: 10,
   INJECT_DELTA_BUDGET_MS: 2000,
   INJECT_RETRIEVE_BUDGET_MS: 3000,
   /** Doctor warns when indexed file count exceeds this (tune via FASTPATH_WARN_FILES). */
@@ -124,7 +128,8 @@ export const DEFAULT_KEEP_DIRS = new Set([
   'e2e',
 ]);
 
-export const INDEXABLE_EXTENSIONS = new Set([
+/** Languages with symbol extraction (parser or regex fallback). */
+export const SYMBOL_EXTENSIONS = new Set([
   '.ts',
   '.tsx',
   '.js',
@@ -133,4 +138,39 @@ export const INDEXABLE_EXTENSIONS = new Set([
   '.cjs',
   '.py',
   '.go',
+]);
+
+/**
+ * Indexed for text search only — no symbol extraction, no vectors. Config and
+ * docs are exactly what an agent otherwise walks the tree to find, and FTS +
+ * n-grams over them is cheap.
+ */
+export const TEXT_ONLY_EXTENSIONS = new Set([
+  '.java',
+  '.kt',
+  '.kts',
+  '.rs',
+  '.rb',
+  '.cs',
+  '.php',
+  '.swift',
+  '.scala',
+  '.c',
+  '.h',
+  '.cc',
+  '.cpp',
+  '.hpp',
+  '.sql',
+  '.sh',
+  '.md',
+  '.mdx',
+  '.json',
+  '.yaml',
+  '.yml',
+  '.toml',
+]);
+
+export const INDEXABLE_EXTENSIONS = new Set([
+  ...SYMBOL_EXTENSIONS,
+  ...TEXT_ONLY_EXTENSIONS,
 ]);

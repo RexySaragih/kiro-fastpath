@@ -100,9 +100,28 @@ fi
 assert_fastpath_tree "$SRC_DIR"
 
 # CRITICAL: never wipe when source == destination (deletes the only copy, including .git).
-if [[ "$SRC_DIR" == "$FASTPATH_HOME" ]]; then
-  die "Source and FASTPATH_HOME are the same path:
-  $SRC_DIR
+# Compare canonical paths, not strings — symlinks, trailing slashes and `..`
+# segments all made the old string check trivially bypassable.
+canon() {
+  if command -v realpath >/dev/null 2>&1; then
+    realpath -- "$1" 2>/dev/null && return
+  fi
+  # macOS without coreutils: resolve with node (already required above).
+  node -e "console.log(require('fs').realpathSync(process.argv[1]))" "$1" 2>/dev/null ||
+    printf '%s' "$1"
+}
+
+SRC_CANON="$(canon "$SRC_DIR")"
+HOME_CANON="$(canon "$FASTPATH_HOME")"
+
+# Nesting is just as destructive as equality: cleaning the home would delete the
+# source that lives inside it (or the source dir containing the home).
+if [[ "$SRC_CANON" == "$HOME_CANON" ]] ||
+   [[ "$HOME_CANON" == "$SRC_CANON"/* ]] ||
+   [[ "$SRC_CANON" == "$HOME_CANON"/* ]]; then
+  die "Source and FASTPATH_HOME resolve to the same or nested paths:
+  source: $SRC_CANON
+  home:   $HOME_CANON
 
   install-home copies a checkout INTO a separate home dir, then cleans the home first.
   Using the same path wipes your working tree.

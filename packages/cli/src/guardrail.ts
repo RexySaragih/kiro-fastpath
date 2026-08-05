@@ -9,25 +9,40 @@
  * Modes:
  *   off   — do nothing
  *   warn  — log only (payload discovery; no behavior change)
- *   block — always block matched tools
- *   auto  — allow a small per-session allowance, then block (default)
+ *   block — block every matched walk
+ *   auto  — allow scoped walks (explicit path, depth <= 1), block the rest (default)
+ *
+ * A blocked walk is answered, not just refused: the indexed file list for the
+ * requested path goes back on STDERR so the agent gets what it wanted with zero
+ * filesystem reads.
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { userFastpathDir } from './config.js';
-import { parseHookPayload, readStdinText } from './hook-util.js';
+import { appendMetric, appendRotatingLine, WALK_TOKENS_AVOIDED } from './metrics.js';
+import { listIndexedPaths } from '@fastpath/core';
+import { isScopedWalk, readWalkRequest } from './guardrail-policy.js';
+import {
+  parseHookPayload,
+  readStdinText,
+  recordHeartbeat,
+  recordHookPayload,
+  workspaceFromPayload,
+} from './hook-util.js';
 
 type GuardrailMode = 'off' | 'warn' | 'block' | 'auto';
 
-/** Walk calls allowed per session before `auto` starts blocking. */
-const AUTO_ALLOWANCE = 2;
 const LOG_TAIL_EVENTS = 500;
 const BLOCK_EXIT_CODE = 2;
+/** How many indexed paths to hand back in place of a blocked walk. */
+const SUBSTITUTE_PATH_LIMIT = 40;
+/** Reading the same file this many times in a session is a token sink. */
+const DUPLICATE_READ_WARN_AT = 2;
 
 const BLOCK_MESSAGE =
-  'FastPath guardrail: repo walking is disabled to save tokens. ' +
-  'Locate code with FastPath MCP tools instead: search / symbol / grep_fast / context_for_task. ' +
-  'If retrieval returns nothing, ask the user for a path or symbol name.';
+  'FastPath guardrail: unscoped repo walking is disabled to save tokens. ' +
+  'Locate code with FastPath MCP tools instead: find / impact / memory. ' +
+  'Scoped walks (explicit path, depth <= 1) are allowed.';
 
 function guardrailMode(): GuardrailMode {
   const raw = (process.env.FASTPATH_GUARDRAIL || 'auto').toLowerCase().trim();
@@ -46,27 +61,26 @@ interface GuardrailEvent {
   mode: GuardrailMode;
   blocked: boolean;
   payloadKeys: string[];
+  path?: string;
 }
+
+
 
 function appendEvent(event: GuardrailEvent): void {
-  try {
-    mkdirSync(userFastpathDir(), { recursive: true });
-    appendFileSync(eventsLogPath(), `${JSON.stringify(event)}\n`);
-  } catch {
-    /* never break the hook */
-  }
+  appendRotatingLine(eventsLogPath(), JSON.stringify(event));
 }
 
-function priorWalksThisSession(session: string): number {
-  const path = eventsLogPath();
-  if (!session || !existsSync(path)) return 0;
+/** Count how often this session already touched the same path. */
+function priorSamePath(session: string, path: string): number {
+  const logPath = eventsLogPath();
+  if (!session || !path || !existsSync(logPath)) return 0;
   try {
-    const lines = readFileSync(path, 'utf8').split('\n').filter(Boolean);
+    const lines = readFileSync(logPath, 'utf8').split('\n').filter(Boolean);
     let count = 0;
     for (const line of lines.slice(-LOG_TAIL_EVENTS)) {
       try {
         const ev = JSON.parse(line) as GuardrailEvent;
-        if (ev.session === session) count += 1;
+        if (ev.session === session && ev.path === path) count += 1;
       } catch {
         /* skip */
       }
@@ -77,17 +91,59 @@ function priorWalksThisSession(session: string): number {
   }
 }
 
+const READ_TOOL = /read|open|cat|view/i;
+
+/**
+ * Answer the blocked walk from the index: the agent wanted a file list, and we
+ * have one. Substituting turns the guardrail into a service instead of friction.
+ */
+function substituteListing(workspace: string, path: string): string | null {
+  try {
+    const paths = listIndexedPaths(workspace, path, SUBSTITUTE_PATH_LIMIT);
+    if (!paths.length) return null;
+    const label = path || 'workspace';
+    return `${label} contains (from FastPath index): ${paths.join(', ')}`;
+  } catch {
+    return null;
+  }
+}
+
 async function run(): Promise<void> {
+  recordHeartbeat('guardrail');
   const mode = guardrailMode();
   if (mode === 'off') return;
 
-  const payload = parseHookPayload(await readStdinText());
+  const raw = await readStdinText();
+  const payload = parseHookPayload(raw);
+  recordHookPayload('guardrail', raw, payload);
   const tool = payload.tool_name || payload.toolName || 'unknown';
   const session = payload.session_id || '';
+  const workspace = workspaceFromPayload(payload);
+  const request = readWalkRequest(payload);
 
-  const priorWalks = priorWalksThisSession(session);
-  const shouldBlock =
-    mode === 'block' || (mode === 'auto' && priorWalks >= AUTO_ALLOWANCE);
+  // Repeated reads of one file are a comparable token sink to walking; warn,
+  // never block, since the read is usually legitimate the first time.
+  if (READ_TOOL.test(tool)) {
+    const seen = priorSamePath(session, request.path);
+    appendEvent({
+      at: new Date().toISOString(),
+      tool,
+      session,
+      mode,
+      blocked: false,
+      payloadKeys: Object.keys(payload),
+      path: request.path,
+    });
+    if (seen >= DUPLICATE_READ_WARN_AT) {
+      console.error(
+        `FastPath: ${request.path} already read ${seen}x this session — reuse what you have instead of re-reading.`,
+      );
+    }
+    return;
+  }
+
+  const scoped = isScopedWalk(request);
+  const shouldBlock = mode === 'block' || (mode === 'auto' && !scoped);
 
   appendEvent({
     at: new Date().toISOString(),
@@ -96,10 +152,20 @@ async function run(): Promise<void> {
     mode,
     blocked: shouldBlock,
     payloadKeys: Object.keys(payload),
+    path: request.path,
+  });
+  appendMetric({
+    type: 'guardrail',
+    at: new Date().toISOString(),
+    session,
+    tool,
+    blocked: shouldBlock,
+    tokensAvoided: shouldBlock ? WALK_TOKENS_AVOIDED : 0,
   });
 
   if (shouldBlock) {
-    console.error(BLOCK_MESSAGE);
+    const listing = substituteListing(workspace, request.path);
+    console.error(listing ? `${BLOCK_MESSAGE}\n${listing}` : BLOCK_MESSAGE);
     process.exit(BLOCK_EXIT_CODE);
   }
 }

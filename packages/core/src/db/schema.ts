@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import { HASH_EMBED_DIM } from '../embed/hash.js';
 
 /** Bump when on-disk shape changes; doctor refuses silent lies. */
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 /** Wait this long on SQLITE_BUSY before failing (watch + inject + index). */
 export const SQLITE_BUSY_TIMEOUT_MS = 5000;
@@ -125,6 +125,31 @@ function migrate(db: Database.Database): void {
       body
     );
 
+    /*
+     * AST-span chunks: one row per indexed symbol, carrying a natural-language
+     * header (path > name(signature)), leading doc comment and the first chunk
+     * of the body. This is what gets embedded and body-searched, so semantic
+     * queries can match code text — not just identifiers — and every body hit
+     * keeps a line anchor.
+     */
+    CREATE TABLE IF NOT EXISTS chunks (
+      symbol_id INTEGER PRIMARY KEY,
+      path TEXT NOT NULL,
+      start_line INTEGER NOT NULL,
+      end_line INTEGER NOT NULL,
+      header TEXT NOT NULL,
+      text TEXT NOT NULL,
+      FOREIGN KEY(symbol_id) REFERENCES symbols(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chunks_path ON chunks(path);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+      header,
+      text,
+      path
+    );
+
     CREATE TABLE IF NOT EXISTS memories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       kind TEXT NOT NULL,
@@ -134,10 +159,23 @@ function migrate(db: Database.Database): void {
       created_at TEXT NOT NULL,
       last_used_at TEXT,
       use_count INTEGER NOT NULL DEFAULT 0,
-      embedding BLOB
+      embedding BLOB,
+      /* Provenance: which commit / file contents the memory was true for. */
+      head_sha TEXT,
+      path_hashes TEXT NOT NULL DEFAULT ''
     );
 
     CREATE INDEX IF NOT EXISTS idx_memories_kind ON memories(kind);
+
+    /* ANN buckets for memory recall — same LSH scheme as symbol vectors. */
+    CREATE TABLE IF NOT EXISTS memory_lsh (
+      table_id INTEGER NOT NULL,
+      bucket INTEGER NOT NULL,
+      memory_id INTEGER NOT NULL,
+      PRIMARY KEY (table_id, bucket, memory_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_memory_lsh_lookup ON memory_lsh(table_id, bucket);
 
     CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
       text,
@@ -168,7 +206,24 @@ function migrate(db: Database.Database): void {
  * needed for transforms it cannot express (column adds, backfills, renames).
  * v5 (memories tables) is purely additive — no step required.
  */
-const STEP_MIGRATIONS: ReadonlyMap<number, (db: Database.Database) => void> = new Map();
+const STEP_MIGRATIONS: ReadonlyMap<number, (db: Database.Database) => void> = new Map([
+  [
+    7,
+    (db: Database.Database) => {
+      // memories predates v7, so the provenance columns need explicit adds.
+      for (const ddl of [
+        `ALTER TABLE memories ADD COLUMN head_sha TEXT`,
+        `ALTER TABLE memories ADD COLUMN path_hashes TEXT NOT NULL DEFAULT ''`,
+      ]) {
+        try {
+          db.exec(ddl);
+        } catch {
+          /* column already present */
+        }
+      }
+    },
+  ],
+]);
 
 export function getSchemaVersion(db: Database.Database): number {
   const raw = getMeta(db, 'schema_version');

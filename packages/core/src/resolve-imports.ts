@@ -16,9 +16,12 @@ export function resolveImport(
 
   const fromDir = dirname(fromPath);
   const base = normalize(join(fromDir, specifier)).replace(/\\/g, '/');
+  // ESM-style TS imports point at the emitted `.js` — map back to source.
+  const rewritten = base.replace(/\.(js|jsx|mjs|cjs)$/, '');
   const candidates = [
     base,
     ...EXTS.map((e) => base + e),
+    ...(rewritten !== base ? EXTS.map((e) => rewritten + e) : []),
     ...EXTS.map((e) => join(base, `index${e}`).replace(/\\/g, '/')),
   ];
 

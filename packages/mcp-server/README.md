@@ -31,7 +31,8 @@ Least privilege: read-only tools over an indexed workspace. No shell, no writes,
 
 ## Tools
 
-`search`, `symbol`, `context_for_task`, `grep_fast`, `impact` — all `readOnlyHint`.
+Advertised: `find`, `impact`, `memory` (`find` / `impact` are `readOnlyHint`).
+Legacy names (`search`, `symbol`, `context_for_task`, `grep_fast`, `memory_save`, `memory_recall`) remain callable.
 
 ## Risks
 

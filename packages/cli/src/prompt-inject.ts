@@ -10,19 +10,32 @@ import {
   getIndexStats,
   IndexLimits,
   indexWorkspacePaths,
+  listMemories,
   recallMemories,
+  recentSymbols,
   type MemoryEntry,
+  type SearchHit,
 } from '@fastpath/core';
 import { updateWorkspaceState } from './state.js';
 import {
   type HookPayload,
   parseHookPayload,
   readStdinText,
+  recordHeartbeat,
+  recordHookPayload,
   withTimeout,
   writeContext,
   workspaceFromPayload,
 } from './hook-util.js';
-import { appendMetric } from './metrics.js';
+import { appendMetric, estimateTokens, type InjectMode } from './metrics.js';
+
+/**
+ * `FASTPATH_INJECT=off` disables retrieval injection while still recording the
+ * turn, so tokens-to-completion can be A/B'd on the same task.
+ */
+function injectMode(): InjectMode {
+  return process.env.FASTPATH_INJECT?.toLowerCase().trim() === 'off' ? 'off' : 'on';
+}
 
 const SNIPPET_MAX_CHARS = 600;
 const MAX_HITS = 6;
@@ -35,9 +48,10 @@ const MEMORY_RECALL_BUDGET_MS = 1000;
 async function recallRelevantMemories(
   workspace: string,
   prompt: string,
+  scopePaths: string[] = [],
 ): Promise<MemoryEntry[]> {
   const raced = await withTimeout(
-    recallMemories(workspace, prompt, MEMORY_TOP_K),
+    recallMemories(workspace, prompt, { topK: MEMORY_TOP_K, scopePaths }),
     MEMORY_RECALL_BUDGET_MS,
   );
   return raced.value ?? [];
@@ -65,6 +79,53 @@ function routingHint(prompt: string, hitPaths: string[]): string | null {
     return 'Routing: small scope — prefer Scout.';
   }
   return null;
+}
+
+const RECENCY_PACK_SYMBOLS = 5;
+
+/**
+ * The hook cost is already paid by the time we know there is no prompt (or no
+ * hits), so never emit an empty block — fall back to a cheap recency pack.
+ */
+function recencyPackLines(workspace: string): string[] {
+  let recent: SearchHit[] = [];
+  try {
+    recent = recentSymbols(workspace, RECENCY_PACK_SYMBOLS);
+  } catch {
+    return [];
+  }
+  if (!recent.length) return [];
+  return [
+    'Recently changed indexed symbols (recency pack):',
+    ...recent.map(
+      (h) => `- **${h.symbol ?? h.kind ?? 'hit'}** — \`${h.path}${h.line ? `:${h.line}` : ''}\``,
+    ),
+  ];
+}
+
+function memoryLines(memories: MemoryEntry[]): string[] {
+  if (!memories.length) return [];
+  return [
+    '',
+    'Project memory:',
+    ...memories.map((m) => `- (${m.kind}) ${m.text.slice(0, MEMORY_SNIPPET_MAX_CHARS)}`),
+  ];
+}
+
+/** Fallback block for "no prompt extracted" — recency + memories, never empty. */
+function recencyFallbackBody(workspace: string, reason: string): string {
+  const pack = recencyPackLines(workspace);
+  let memories: MemoryEntry[] = [];
+  try {
+    memories = listMemories(workspace, MEMORY_TOP_K);
+  } catch {
+    /* memories are optional */
+  }
+  const body = [...pack, ...memoryLines(memories)];
+  if (!body.length) {
+    return `## FastPath\n\n(${reason}; index has nothing to offer yet)\n`;
+  }
+  return `## FastPath (auto-injected)\n\n(${reason})\n\n${body.join('\n')}\n\nLocate more with FastPath MCP tools. Do NOT walk the repo.\n`;
 }
 
 function extractPrompt(payload: HookPayload, raw: string): string {
@@ -112,14 +173,50 @@ async function maybeDeltaReindex(
 }
 
 async function run(): Promise<void> {
+  recordHeartbeat('prompt-inject');
   const raw = await readStdinText();
   const payload = parseHookPayload(raw);
+  recordHookPayload('prompt-inject', raw, payload);
 
   const prompt = extractPrompt(payload, raw);
   const workspace = workspaceFromPayload(payload);
+  const session = payload.session_id || '';
+  const mode = injectMode();
+
+  /** Emit + ledger the tokens this turn actually cost. */
+  const record = (
+    body: string | null,
+    stats: {
+      dirty: number;
+      deltaMs: number;
+      retrieveMs: number;
+      hits: number;
+      timedOutDelta: boolean;
+      timedOutRetrieve: boolean;
+    },
+  ): void => {
+    const payloadBody = mode === 'off' ? null : body;
+    if (payloadBody) writeContext(payloadBody);
+    appendMetric({
+      type: 'inject',
+      at: new Date().toISOString(),
+      session,
+      mode,
+      injectedTokens: payloadBody ? estimateTokens(payloadBody) : 0,
+      ...stats,
+    });
+  };
 
   if (!prompt) {
-    writeContext('## FastPath\n\n(no user prompt — skip retrieval)\n');
+    const body = await recencyFallbackBody(workspace, 'no user prompt in hook payload');
+    record(body, {
+      dirty: 0,
+      deltaMs: 0,
+      retrieveMs: 0,
+      hits: 0,
+      timedOutDelta: false,
+      timedOutRetrieve: false,
+    });
     return;
   }
 
@@ -133,8 +230,16 @@ async function run(): Promise<void> {
 
   const stats = getIndexStats(workspace);
   if (!stats.files) {
-    writeContext(
+    record(
       `## FastPath\n\nIndex empty at \`${workspace}\`. Run \`fastpath index\` before coding.\n`,
+      {
+        dirty: delta.dirty,
+        deltaMs: delta.ms,
+        retrieveMs: 0,
+        hits: 0,
+        timedOutDelta: delta.timedOut,
+        timedOutRetrieve: false,
+      },
     );
     return;
   }
@@ -150,34 +255,21 @@ async function run(): Promise<void> {
     console.error(
       `[fastpath prompt-inject] retrieve timed out after ${IndexLimits.INJECT_RETRIEVE_BUDGET_MS}ms`,
     );
-    appendMetric({
-      type: 'inject',
-      at: new Date().toISOString(),
-      dirty: delta.dirty,
-      deltaMs: delta.ms,
-      retrieveMs,
-      hits: 0,
-      timedOutDelta: delta.timedOut,
-      timedOutRetrieve: true,
-    });
-    writeContext(
-      '## FastPath\n\n(retrieval timed out — use FastPath MCP tools: symbol / search / grep_fast)\n',
+    record(
+      '## FastPath\n\n(retrieval timed out — use FastPath MCP tools: find / impact / memory)\n',
+      {
+        dirty: delta.dirty,
+        deltaMs: delta.ms,
+        retrieveMs,
+        hits: 0,
+        timedOutDelta: delta.timedOut,
+        timedOutRetrieve: true,
+      },
     );
     return;
   }
 
   const hits = raced.value ?? [];
-  appendMetric({
-    type: 'inject',
-    at: new Date().toISOString(),
-    dirty: delta.dirty,
-    deltaMs: delta.ms,
-    retrieveMs,
-    hits: hits.length,
-    timedOutDelta: delta.timedOut,
-    timedOutRetrieve: false,
-  });
-
   const lines = [
     '## FastPath retrieved context (auto-injected)',
     '',
@@ -188,13 +280,25 @@ async function run(): Promise<void> {
     '',
   ];
 
+  // The delta cap silently dropped work — say so rather than serving stale hits.
+  if (delta.dirty >= IndexLimits.DELTA_MAX_FILES) {
+    lines.push(
+      `Note: ${delta.dirty}+ dirty files, only ${IndexLimits.DELTA_MAX_FILES} reindexed — retrieval may be stale. Run \`fastpath index --git\` or \`fastpath watch\`.`,
+      '',
+    );
+  }
+  if (delta.timedOut) {
+    lines.push('Note: delta reindex timed out — retrieval may be stale.', '');
+  }
+
   const hint = routingHint(prompt, hits.map((h) => h.path));
   if (hint) lines.push(hint, '');
 
   if (!hits.length) {
-    lines.push(
-      '(no strong matches — ask user for a file path or symbol name; do not scan the repo)',
-    );
+    lines.push('(no strong query matches — showing recency instead of nothing)', '');
+    const pack = recencyPackLines(workspace);
+    if (pack.length) lines.push(...pack);
+    else lines.push('(index has no symbols yet — ask user for a path or symbol name)');
   }
 
   for (const hit of hits.slice(0, MAX_HITS)) {
@@ -205,15 +309,29 @@ async function run(): Promise<void> {
     }
   }
 
-  const memories = await recallRelevantMemories(workspace, prompt);
+  const memories = await recallRelevantMemories(
+    workspace,
+    prompt,
+    hits.map((h) => h.path),
+  );
   if (memories.length) {
     lines.push('', '## FastPath memory (auto-injected)', '');
     for (const m of memories) {
-      lines.push(`- (${m.kind}) ${m.text.slice(0, MEMORY_SNIPPET_MAX_CHARS)}`);
+      // Flag memories whose referenced files changed — a stale fact is worse
+      // than no fact.
+      const stale = m.stale ? ' [STALE — referenced files changed since saved]' : '';
+      lines.push(`- (${m.kind}) ${m.text.slice(0, MEMORY_SNIPPET_MAX_CHARS)}${stale}`);
     }
   }
 
-  writeContext(`${lines.join('\n')}\n`);
+  record(`${lines.join('\n')}\n`, {
+    dirty: delta.dirty,
+    deltaMs: delta.ms,
+    retrieveMs,
+    hits: hits.length,
+    timedOutDelta: delta.timedOut,
+    timedOutRetrieve: false,
+  });
 }
 
 run()

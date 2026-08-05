@@ -4,7 +4,9 @@
 
 # Kiro FastPath
 
-Warm local hybrid code index + thin MCP + **Scout** / **Architect** agents for AWS Kiro (IDE and CLI).
+Warm local hybrid code index + thin MCP + **Scout** / **Architect** agents for **Kiro IDE**.
+The installer writes Kiro IDE artifacts (`.kiro/agents`, `.kiro/hooks`, `.kiro/settings/mcp.json`);
+`fastpath` itself is a normal terminal CLI, but Kiro-CLI agent profiles are not generated.
 
 Makes Kiro **retrieve → act** instead of packing the workspace and over-exploring.
 
@@ -60,17 +62,17 @@ sequenceDiagram
 
 Same neighborhood as tools like [KiroGraph](https://github.com/davide-desio-eleva/kirograph) and common “memory” add-ons — but not the same job.
 
-| | FastPath | KiroGraph | Common memory tools |
-|---|---|---|---|
-| Main job | Stop Kiro from walking the whole repo | Give Kiro a deep map of how code connects | Remember what was said / decided across chats |
-| Knows where code lives? | Yes (search, symbols, snippets) | Yes, plus richer “who calls whom” analysis | Usually no |
-| Remembers past decisions? | Yes, but small and simple | Yes (optional, richer) | That’s their whole product |
-| Blocks wasteful folder listing? | Yes (guardrail) | Soft reminders / agent habits | No |
-| Ships ready agents (Scout / Architect)? | Yes | No (tools for whatever agent you use) | No |
+|                                         | FastPath                              | KiroGraph                                  | Common memory tools                           |
+| --------------------------------------- | ------------------------------------- | ------------------------------------------ | --------------------------------------------- |
+| Main job                                | Stop Kiro from walking the whole repo | Give Kiro a deep map of how code connects  | Remember what was said / decided across chats |
+| Knows where code lives?                 | Yes (search, symbols, snippets)       | Yes, plus richer “who calls whom” analysis | Usually no                                    |
+| Remembers past decisions?               | Yes, but small and simple             | Yes (optional, richer)                     | That’s their whole product                    |
+| Blocks wasteful folder listing?         | Yes (guardrail)                       | Soft reminders / agent habits              | No                                            |
+| Ships ready agents (Scout / Architect)? | Yes                                   | No (tools for whatever agent you use)      | No                                            |
 
 **vs KiroGraph** — both keep a local map so Kiro doesn’t re-scan the tree. KiroGraph goes deep (call chains, dead code, architecture checks, optional heavy memory). FastPath stays thin: auto-paste a few hits into every prompt, route small vs big work, and block “list every folder.” Think atlas + lab vs GPS that only shows the next few turns.
 
-**vs common memory tools** (Mem0, Engram, cavemem, “remember this”, etc.) — those mostly answer *“what did we decide last week?”* They usually don’t answer *“which file has `validateJwt`?”* Without a code map, the agent still explores the tree — and that’s where most tokens go. FastPath’s notes are a small add-on on top of the code map; the map is the main savings.
+**vs common memory tools** (Mem0, Engram, cavemem, “remember this”, etc.) — those mostly answer _“what did we decide last week?”_ They usually don’t answer _“which file has `validateJwt`?”_ Without a code map, the agent still explores the tree — and that’s where most tokens go. FastPath’s notes are a small add-on on top of the code map; the map is the main savings.
 
 **When to pick what**
 
@@ -82,18 +84,18 @@ You can combine them in theory; for one tool, FastPath’s bet is **forced retri
 
 ## Architecture
 
-| Layer | Tech |
-|-------|------|
-| Store | SQLite `.fastpath/index.db` (WAL) |
-| Lexical | FTS5 BM25 |
-| Regex speedup | Sparse n-gram inverted index |
-| Semantic | MiniLM (`@huggingface/transformers`) + RRF; hash fallback |
-| ANN | LSH (+ optional `sqlite-vec`) |
-| Graph | Import edges + `call_edges` |
-| Symbols | web-tree-sitter (legacy TS/regex fallback) |
-| Freshness | Prompt-inject delta, `watch`, `index --git` |
-| Delivery | MCP stdio — 7 tools (search + memory) |
-| Harness | Scout / Architect + steering + doctor |
+| Layer         | Tech                                                      |
+| ------------- | --------------------------------------------------------- |
+| Store         | SQLite `.fastpath/index.db` (WAL)                         |
+| Lexical       | FTS5 BM25                                                 |
+| Regex speedup | Sparse n-gram inverted index                              |
+| Semantic      | MiniLM (`@huggingface/transformers`) + RRF; hash fallback |
+| ANN           | LSH (+ optional `sqlite-vec`)                             |
+| Graph         | Import edges + `call_edges`                               |
+| Symbols       | web-tree-sitter (legacy TS/regex fallback)                |
+| Freshness     | Prompt-inject delta, `watch`, `index --git`               |
+| Delivery      | MCP stdio — 3 tools (`find` / `impact` / `memory`)        |
+| Harness       | Scout / Architect + steering + doctor                     |
 
 ## Make Kiro actually use the index
 
@@ -129,10 +131,10 @@ bash "$FASTPATH_HOME/scripts/install-target.sh" /path/to/your-repo
 
 **In Kiro:**
 
-1. Reload window  
-2. Agent picker → **Workspace → Scout** (daily) or **Architect** (multi-file)  
-3. Hook UI → enable all **fastpath-\*** hooks  
-4. Disable other MCP servers for daily work  
+1. Reload window
+2. Agent picker → **Workspace → Scout** (daily) or **Architect** (multi-file)
+3. Hook UI → enable all **fastpath-\*** hooks
+4. Disable other MCP servers for daily work
 
 **Updates:**
 
@@ -146,9 +148,9 @@ node packages/cli/dist/index.js index --git /path/to/your-repo
 
 Docs for agents / first install:
 
-- `scripts/OFFICE_RUNBOOK.txt` — day-to-day ops  
-- `scripts/INSTALL_PROMPT.txt` — paste into an agent to install on a new machine  
-- `scripts/SECURITY_NOTES.txt` — npm audit policy  
+- `scripts/OFFICE_RUNBOOK.txt` — day-to-day ops
+- `scripts/INSTALL_PROMPT.txt` — paste into an agent to install on a new machine
+- `scripts/SECURITY_NOTES.txt` — npm audit policy
 
 Optional USB/airgap zip: `npm run pack:release` then `bash scripts/install-home.sh dist-release/fastpath-*.zip`.
 
@@ -164,10 +166,10 @@ bash scripts/install-target.sh /path/to/your/repo
 
 ## Agents
 
-| Agent | Model | Effort (session) | Use for |
-|-------|-------|------------------|---------|
-| **Scout** | `claude-sonnet-5` | `/effort low` | Daily coding — locate → edit, max ~3 files |
-| **Architect** | `claude-opus-5` | `/effort medium` | Multi-file features (+ shell / subagent) |
+| Agent         | Model             | Effort (session) | Use for                                    |
+| ------------- | ----------------- | ---------------- | ------------------------------------------ |
+| **Scout**     | `claude-sonnet-5` | `/effort low`    | Daily coding — locate → edit, max ~3 files |
+| **Architect** | `claude-opus-5`   | `/effort medium` | Multi-file features (+ shell / subagent)   |
 
 Kiro binds effort per session/model, not per agent — set `/effort` when you switch agents.
 
@@ -176,6 +178,9 @@ Kiro binds effort per session/model, not per agent — set `/effort` when you sw
 Do not add CLI-only fields (`allowedTools`, `includeMcpJson`) to agent markdown — Kiro IDE will hide the agent.
 
 ## CLI
+
+Manages the index, install and diagnostics. It does not generate Kiro-CLI agent profiles — the
+agent pack targets Kiro IDE.
 
 ```bash
 fastpath init|index|watch|status|doctor|warm|eval [workspace]
@@ -186,22 +191,23 @@ fastpath rewire [--all] [workspace]       # refresh abs paths after upgrade
 fastpath unwire [workspace] [--purge-index]
 fastpath upgrade                          # pull + build FASTPATH_HOME
 fastpath repair-native                    # after Node upgrade
-fastpath eval [--office]
-fastpath home|version|metrics [--summary]
+fastpath eval [--office|--golden]         # smoke, office goldens, or graded metrics
+fastpath bench [workspace] [--tasks f.json]  # tokens injected vs baseline discovery
+fastpath home|version|metrics [--summary|--tokens]
 fastpath memory list|forget <id>|distill [workspace]
 fastpath viz [workspace] [--no-open] [--out file.html]   # local HTML dashboard of the index
 ```
 
 Env (also set by install into MCP/hook):
 
-| Variable | Meaning |
-|----------|---------|
-| `FASTPATH_HOME` | Product install root (default `~/kiro-fastpath`) |
-| `FASTPATH_WORKSPACE` | Target repo |
-| `FASTPATH_EMBED` | `auto` \| `minilm` \| `hash` |
-| `FASTPATH_RERANK` | `on` \| `off` |
-| `FASTPATH_PARSER` | `treesitter` \| `legacy` |
-| `FASTPATH_ALLOW_HASH` | `1` to allow hash backend in doctor |
+| Variable              | Meaning                                          |
+| --------------------- | ------------------------------------------------ |
+| `FASTPATH_HOME`       | Product install root (default `~/kiro-fastpath`) |
+| `FASTPATH_WORKSPACE`  | Target repo                                      |
+| `FASTPATH_EMBED`      | `auto` \| `minilm` \| `hash`                     |
+| `FASTPATH_RERANK`     | `on` \| `off`                                    |
+| `FASTPATH_PARSER`     | `treesitter` \| `legacy`                         |
+| `FASTPATH_ALLOW_HASH` | `1` to allow hash backend in doctor              |
 
 Optional ANN: `npm install sqlite-vec -w @fastpath/core` then re-index.
 
@@ -225,13 +231,13 @@ Optional ANN: `npm install sqlite-vec -w @fastpath/core` then re-index.
 
 ## MCP tools (read-only)
 
-| Tool | Use when |
-|------|----------|
-| `search` | Hybrid locate (FTS + vectors via RRF + optional rerank) |
-| `symbol` | Know the symbol name |
-| `context_for_task` | One-shot context pack for a prompt |
-| `grep_fast` | Exact/regex text via n-gram prefilter |
-| `impact` | Definitions, callers, importers, references |
+Advertised surface is three tools (legacy names remain callable):
+
+| Tool     | Use when                                                                 |
+| -------- | ------------------------------------------------------------------------ |
+| `find`   | Locate code — `mode`: `search` / `symbol` / `grep` / `context`           |
+| `impact` | Definitions, callers, importers, references                              |
+| `memory` | Save / recall / list / forget session notes                              |
 
 ## Verify
 

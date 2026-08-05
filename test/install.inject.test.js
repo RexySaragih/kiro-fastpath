@@ -111,7 +111,11 @@ test('install-kiro writes valid hook JSON and wired agents', () => {
       env: testEnv,
     });
     assert.equal(doctor.status, 0, doctor.stdout + doctor.stderr);
-    assert.match(doctor.stdout, /SCOUT READY/);
+    // Install is issue-free; liveness is separate (hooks have never fired in a
+    // fresh temp user dir, so doctor reports UNVERIFIED rather than READY).
+    assert.doesNotMatch(doctor.stdout, /NOT READY/);
+    assert.match(doctor.stdout, /SCOUT READY|UNVERIFIED/);
+    assert.match(doctor.stdout, /Hook matchers compile as JS RegExp/);
     assert.match(doctor.stdout, /Call graph table ready/);
     assert.match(doctor.stdout, /Agent pack IDE-compatible/);
     assert.match(doctor.stdout, /Search smoke OK/);

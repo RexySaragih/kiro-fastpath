@@ -16,13 +16,9 @@ mcpServers:
     timeout: __MCP_TIMEOUT__
     requestTimeout: __MCP_REQUEST_TIMEOUT__
     autoApprove:
-      - search
-      - symbol
-      - context_for_task
-      - grep_fast
+      - find
       - impact
-      - memory_save
-      - memory_recall
+      - memory
 permissions:
   rules:
     # Subagents cannot answer "ask" prompts — allow the edit path explicitly.
@@ -45,18 +41,19 @@ Effort: run `/effort low` when you start a Scout session (Kiro does not bind eff
 ## When the path is already given
 
 If the user names an exact file path:
-1) Read that file.
-2) Edit it.
-3) Stop.
 
-Do **not** `grep_fast` / `search` to “confirm” text you are about to add. Do not explore.
+1. Read that file.
+2. Edit it.
+3. Stop.
+
+Do **not** call `find` to “confirm” text you are about to add. Do not explore.
 
 ## When you must locate code
 
-1) Read the auto-injected ## FastPath retrieved context block if present.
-2) If you need more: call FastPath MCP — `symbol` / `grep_fast` / `search` / `context_for_task`.
-3) Open ONLY returned paths (max 3 file reads).
-4) Edit. Stop.
+1. Read the auto-injected ## FastPath retrieved context block if present.
+2. If you need more: call FastPath MCP `find` (mode: symbol / grep / search / context).
+3. Open ONLY returned paths (max 3 file reads).
+4. Edit. Stop.
 
 ## Hard rules
 

@@ -80,6 +80,51 @@ export const memoryRecallTool: Tool = {
   },
 };
 
+/** One schema for both memory operations — half the per-turn tool overhead. */
+export const memoryTool: Tool = {
+  name: 'memory',
+  description:
+    'Project memory. op=recall past decisions/facts before re-deriving them; op=save one durable line.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      op: { type: 'string', enum: ['recall', 'save'], description: 'Default recall.' },
+      text: { type: 'string', description: 'recall: query. save: the memory line.' },
+      kind: { type: 'string', enum: [...MEMORY_KIND_ENUM], description: 'save only.' },
+      tags: { type: 'array', items: { type: 'string' }, description: 'save only.' },
+      paths: { type: 'array', items: { type: 'string' }, description: 'save only.' },
+      top_k: { type: 'number', description: 'recall only (default 3).' },
+    },
+    required: ['text'],
+    additionalProperties: false,
+  },
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+};
+
+const memorySchema = z.object({
+  op: z.enum(['recall', 'save']).optional(),
+  text: z.string().min(1).max(2000),
+  kind: z.enum(MEMORY_KIND_ENUM).optional(),
+  tags: z.array(z.string().max(50)).max(10).optional(),
+  paths: z.array(z.string().max(300)).max(10).optional(),
+  top_k: z.number().int().positive().max(10).optional(),
+});
+
+export async function handleMemory(client: FastpathClient, args: unknown) {
+  const parsed = memorySchema.safeParse(args);
+  if (!parsed.success) return toolErr(parsed.error.message);
+  const { op = 'recall', text, kind, tags, paths, top_k } = parsed.data;
+  if (op === 'save') {
+    return handleMemorySave(client, { kind: kind ?? 'fact', text, tags, paths });
+  }
+  return handleMemoryRecall(client, { query: text, top_k });
+}
+
 const saveSchema = z.object({
   kind: z.enum(MEMORY_KIND_ENUM),
   text: z.string().min(1).max(2000),

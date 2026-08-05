@@ -8,8 +8,16 @@ import type Database from 'better-sqlite3';
 import { openDatabase } from '../db/schema.js';
 import { embedQuery } from '../embed/backend.js';
 import { blobToVec, cosine, vecToBlob } from '../embed/hash.js';
-import { resolveDbPath } from '../index/indexer.js';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
+import { gitHeadSha, resolveDbPath } from '../index/indexer.js';
 import { IndexLimits } from '../types.js';
+import {
+  clearMemoryLsh,
+  indexMemoryLsh,
+  memoryLshCandidateIds,
+} from '../search/ann.js';
 
 export type MemoryKind = 'decision' | 'fact' | 'preference' | 'session';
 
@@ -29,6 +37,16 @@ export interface MemoryEntry {
   createdAt: string;
   lastUsedAt: string | null;
   useCount: number;
+  /** Commit the memory was recorded against (null outside git). */
+  headSha?: string | null;
+  /** True when a referenced file changed since the memory was saved. */
+  stale?: boolean;
+}
+
+export interface RecallOptions {
+  topK?: number;
+  /** Paths from the current retrieval — memories touching them are boosted. */
+  scopePaths?: string[];
 }
 
 export interface SaveMemoryInput {
@@ -54,6 +72,8 @@ interface MemoryRow {
   last_used_at: string | null;
   use_count: number;
   embedding: Buffer | null;
+  head_sha?: string | null;
+  path_hashes?: string | null;
 }
 
 function rowToEntry(row: MemoryRow): MemoryEntry {
@@ -66,7 +86,46 @@ function rowToEntry(row: MemoryRow): MemoryEntry {
     createdAt: row.created_at,
     lastUsedAt: row.last_used_at,
     useCount: row.use_count,
+    headSha: row.head_sha ?? null,
   };
+}
+
+function shortHash(content: string): string {
+  return createHash('sha256').update(content).digest('hex').slice(0, 12);
+}
+
+/** `path:hash` pairs so recall can tell when a memory's code moved on. */
+function hashPaths(workspace: string, paths: string[]): string {
+  const out: string[] = [];
+  for (const rel of paths) {
+    const abs = isAbsolute(rel) ? rel : join(workspace, rel);
+    try {
+      if (existsSync(abs)) out.push(`${rel}:${shortHash(readFileSync(abs, 'utf8'))}`);
+    } catch {
+      /* unreadable — no provenance for this path */
+    }
+  }
+  return out.join(',');
+}
+
+/** A memory is stale when any referenced file no longer matches its saved hash. */
+export function memoryIsStale(workspace: string, row: MemoryRow): boolean {
+  const raw = row.path_hashes ?? '';
+  if (!raw) return false;
+  for (const pair of raw.split(',').filter(Boolean)) {
+    const idx = pair.lastIndexOf(':');
+    if (idx <= 0) continue;
+    const rel = pair.slice(0, idx);
+    const expected = pair.slice(idx + 1);
+    const abs = isAbsolute(rel) ? rel : join(workspace, rel);
+    try {
+      if (!existsSync(abs)) return true;
+      if (shortHash(readFileSync(abs, 'utf8')) !== expected) return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
 }
 
 function withMemoryDb<T>(workspace: string, fn: (db: Database.Database) => T): T {
@@ -86,6 +145,81 @@ function escapeFtsQuery(query: string): string {
     .filter(Boolean)
     .map((t) => `"${t}"`)
     .join(' OR ');
+}
+
+/** Cosine above this means "the same memory, said differently" — merge them. */
+const NEAR_DUPLICATE_COSINE = 0.9;
+/** Recall scoring weights: semantic relevance, recency, proven usefulness. */
+const SCORE_WEIGHTS = { semantic: 0.6, recency: 0.25, useCount: 0.15 } as const;
+const RECENCY_HALF_LIFE_DAYS = 30;
+/** Memories scoring below this after decay are dropped on write. */
+const PRUNE_SCORE_FLOOR = 0.02;
+const PRUNE_MIN_AGE_DAYS = 60;
+/** Memories whose paths overlap the current work get this multiplier. */
+const SCOPE_BOOST = 1.5;
+/** Off-scope memories must clear this to be injected at all. */
+const OFF_SCOPE_FLOOR = 0.08;
+
+function recencyScore(iso: string | null): number {
+  if (!iso) return 0;
+  const ageDays = (Date.now() - Date.parse(iso)) / 86_400_000;
+  if (!Number.isFinite(ageDays)) return 0;
+  return Math.pow(0.5, Math.max(0, ageDays) / RECENCY_HALF_LIFE_DAYS);
+}
+
+function findNearDuplicate(
+  db: Database.Database,
+  vec: Float32Array,
+  kind: MemoryKind,
+): MemoryRow | null {
+  const candidateIds = memoryLshCandidateIds(db, vec);
+  if (!candidateIds.length) return null;
+  const rows = db
+    .prepare(
+      `SELECT * FROM memories WHERE kind = ? AND id IN (${candidateIds
+        .map(() => '?')
+        .join(',')})`,
+    )
+    .all(kind, ...candidateIds) as MemoryRow[];
+  let best: { row: MemoryRow; score: number } | null = null;
+  for (const row of rows) {
+    if (!row.embedding) continue;
+    const other = blobToVec(row.embedding);
+    if (other.length !== vec.length) continue;
+    const score = cosine(vec, other);
+    if (score >= NEAR_DUPLICATE_COSINE && (!best || score > best.score)) {
+      best = { row, score };
+    }
+  }
+  return best?.row ?? null;
+}
+
+/** Drop stale, unused, low-value memories. Cheap, runs on write. */
+function pruneDecayedMemories(db: Database.Database): void {
+  const rows = db
+    .prepare(
+      `SELECT id, created_at, last_used_at, use_count FROM memories WHERE kind != 'session'`,
+    )
+    .all() as Array<{
+    id: number;
+    created_at: string;
+    last_used_at: string | null;
+    use_count: number;
+  }>;
+  const doomed: number[] = [];
+  for (const row of rows) {
+    const ageDays = (Date.now() - Date.parse(row.created_at)) / 86_400_000;
+    if (!Number.isFinite(ageDays) || ageDays < PRUNE_MIN_AGE_DAYS) continue;
+    const score =
+      SCORE_WEIGHTS.recency * recencyScore(row.last_used_at ?? row.created_at) +
+      SCORE_WEIGHTS.useCount * Math.min(1, row.use_count / 5);
+    if (score < PRUNE_SCORE_FLOOR) doomed.push(row.id);
+  }
+  for (const id of doomed) {
+    db.prepare(`DELETE FROM memories WHERE id = ?`).run(id);
+    db.prepare(`DELETE FROM memories_fts WHERE rowid = ?`).run(id);
+    clearMemoryLsh(db, id);
+  }
 }
 
 function pruneSessionMemories(db: Database.Database): void {
@@ -120,13 +254,46 @@ export async function saveMemory(
       return rowToEntry({ ...existing, use_count: existing.use_count + 1 });
     }
 
+    // Consolidate near-duplicates instead of stacking paraphrases.
+    const twin = findNearDuplicate(db, vec, input.kind);
+    if (twin) {
+      const merged = twin.text.length >= text.length ? twin.text : text;
+      db.prepare(
+        `UPDATE memories SET text = ?, use_count = use_count + 1, last_used_at = ?,
+           head_sha = ?, path_hashes = ? WHERE id = ?`,
+      ).run(
+        merged,
+        new Date().toISOString(),
+        gitHeadSha(workspace),
+        hashPaths(workspace, input.paths ?? []),
+        twin.id,
+      );
+      db.prepare(`DELETE FROM memories_fts WHERE rowid = ?`).run(twin.id);
+      db.prepare(
+        `INSERT INTO memories_fts(rowid, text, tags, paths) VALUES (?, ?, ?, ?)`,
+      ).run(twin.id, merged, twin.tags, twin.paths);
+      const row = db.prepare(`SELECT * FROM memories WHERE id = ?`).get(twin.id) as MemoryRow;
+      return rowToEntry(row);
+    }
+
     const info = db
       .prepare(
-        `INSERT INTO memories(kind, text, tags, paths, created_at, use_count, embedding)
-         VALUES (?, ?, ?, ?, ?, 0, ?)`,
+        `INSERT INTO memories(kind, text, tags, paths, created_at, use_count, embedding,
+                              head_sha, path_hashes)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
       )
-      .run(input.kind, text, tags, paths, new Date().toISOString(), vecToBlob(vec));
+      .run(
+        input.kind,
+        text,
+        tags,
+        paths,
+        new Date().toISOString(),
+        vecToBlob(vec),
+        gitHeadSha(workspace),
+        hashPaths(workspace, input.paths ?? []),
+      );
     const id = Number(info.lastInsertRowid);
+    indexMemoryLsh(db, id, vec);
     db.prepare(`INSERT INTO memories_fts(rowid, text, tags, paths) VALUES (?, ?, ?, ?)`).run(
       id,
       text,
@@ -134,6 +301,7 @@ export async function saveMemory(
       paths,
     );
     if (input.kind === 'session') pruneSessionMemories(db);
+    else pruneDecayedMemories(db);
     const row = db.prepare(`SELECT * FROM memories WHERE id = ?`).get(id) as MemoryRow;
     return rowToEntry(row);
   });
@@ -142,9 +310,12 @@ export async function saveMemory(
 export async function recallMemories(
   workspace: string,
   query: string,
-  topK = DEFAULT_RECALL_TOP_K,
+  topKOrOptions: number | RecallOptions = DEFAULT_RECALL_TOP_K,
 ): Promise<MemoryEntry[]> {
-  const k = Math.max(1, Math.min(topK, MAX_RECALL_TOP_K));
+  const options: RecallOptions =
+    typeof topKOrOptions === 'number' ? { topK: topKOrOptions } : topKOrOptions;
+  const k = Math.max(1, Math.min(options.topK ?? DEFAULT_RECALL_TOP_K, MAX_RECALL_TOP_K));
+  const scope = new Set(options.scopePaths ?? []);
   const qVec = await embedQuery(query);
 
   return withMemoryDb(workspace, (db) => {
@@ -164,41 +335,57 @@ export async function recallMemories(
       ftsIds = [];
     }
 
-    const rows = db.prepare(`SELECT * FROM memories`).all() as MemoryRow[];
-    const vecRanked = rows
-      .filter((r) => r.embedding && blobToVec(r.embedding).length === qVec.length)
-      .map((r) => ({ id: r.id, score: cosine(qVec, blobToVec(r.embedding!)) }))
-      .filter((r) => r.score >= IndexLimits.COSINE_MIN_SCORE)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, k * 3)
-      .map((r) => r.id);
+    // Candidates come from ANN buckets + FTS, not a full table scan.
+    const candidateIds = new Set<number>([...ftsIds, ...memoryLshCandidateIds(db, qVec)]);
+    const rows = candidateIds.size
+      ? (db
+          .prepare(
+            `SELECT * FROM memories WHERE id IN (${[...candidateIds].map(() => '?').join(',')})`,
+          )
+          .all(...candidateIds) as MemoryRow[])
+      : (db
+          .prepare(`SELECT * FROM memories ORDER BY id DESC LIMIT ?`)
+          .all(k * 5) as MemoryRow[]);
 
-    const rrf = new Map<number, number>();
-    for (const list of [ftsIds, vecRanked]) {
-      list.forEach((id, rank) => {
-        rrf.set(id, (rrf.get(id) ?? 0) + 1 / (IndexLimits.RRF_K + rank + 1));
-      });
+    const ftsRank = new Map(ftsIds.map((id, i) => [id, i]));
+    const scored: Array<{ row: MemoryRow; score: number }> = [];
+    for (const row of rows) {
+      let semantic = 0;
+      if (row.embedding) {
+        const vec = blobToVec(row.embedding);
+        if (vec.length === qVec.length) semantic = cosine(qVec, vec);
+      }
+      const lexical = ftsRank.has(row.id)
+        ? 1 / (IndexLimits.RRF_K + ftsRank.get(row.id)! + 1)
+        : 0;
+      let score =
+        SCORE_WEIGHTS.semantic * Math.max(semantic, lexical * IndexLimits.RRF_K) +
+        SCORE_WEIGHTS.recency * recencyScore(row.last_used_at ?? row.created_at) +
+        SCORE_WEIGHTS.useCount * Math.min(1, row.use_count / 5);
+
+      const paths = row.paths ? row.paths.split(',').filter(Boolean) : [];
+      const inScope = scope.size > 0 && paths.some((p) => scope.has(p));
+      if (inScope) score *= SCOPE_BOOST;
+      // Off-scope memories need to clear a higher bar so a backend decision
+      // stops surfacing on unrelated frontend prompts.
+      else if (scope.size > 0 && score < OFF_SCOPE_FLOOR) continue;
+
+      if (score <= 0) continue;
+      scored.push({ row, score });
     }
 
-    const picked = [...rrf.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, k)
-      .map(([id]) => id);
+    scored.sort((a, b) => b.score - a.score);
+    const picked = scored.slice(0, k);
     if (!picked.length) return [];
 
-    const byId = new Map(rows.map((r) => [r.id, r]));
     const now = new Date().toISOString();
     const touch = db.prepare(
       `UPDATE memories SET use_count = use_count + 1, last_used_at = ? WHERE id = ?`,
     );
-    const out: MemoryEntry[] = [];
-    for (const id of picked) {
-      const row = byId.get(id);
-      if (!row) continue;
-      touch.run(now, id);
-      out.push(rowToEntry(row));
-    }
-    return out;
+    return picked.map(({ row }) => {
+      touch.run(now, row.id);
+      return { ...rowToEntry(row), stale: memoryIsStale(workspace, row) };
+    });
   });
 }
 

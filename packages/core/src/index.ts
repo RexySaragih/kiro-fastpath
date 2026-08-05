@@ -6,6 +6,8 @@ export {
   HARD_MAX_CHUNKS,
   HARD_MAX_TOP_K,
   INDEXABLE_EXTENSIONS,
+  SYMBOL_EXTENSIONS,
+  TEXT_ONLY_EXTENSIONS,
   IndexLimits,
   McpTimeouts,
   type CallEdge,
@@ -34,6 +36,9 @@ export {
   indexWorkspace,
   indexWorkspacePaths,
   indexGitChanged,
+  indexHeadChange,
+  gitHeadSha,
+  buildSymbolChunk,
   listGitChangedFiles,
   removeIndexedPaths,
   findDirtyFiles,
@@ -42,7 +47,15 @@ export {
   resolveDbPath,
   type IndexResult,
 } from './index/indexer.js';
-export { searchIndex, lookupSymbol, contextForTask } from './search/query.js';
+export {
+  searchIndex,
+  lookupSymbol,
+  contextForTask,
+  recentSymbols,
+  listIndexedPaths,
+  expandQueryTerms,
+  zeroHitLadder,
+} from './search/query.js';
 export { grepFast } from './search/grep.js';
 export { impactForSymbol, formatImpact, type ImpactResult } from './search/impact.js';
 export { fuseRrf, classifyQuery, type QueryKind } from './search/rrf.js';

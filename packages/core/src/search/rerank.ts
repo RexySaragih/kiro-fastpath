@@ -34,16 +34,22 @@ async function loadRanker(): Promise<Ranker | null> {
       dtype: 'fp32',
     });
 
+    // One batched inference for all pairs — the previous sequential loop spent
+    // the whole inject budget on model round-trips.
     return async (pairs) => {
-      const scores: number[] = [];
-      for (const [query, passage] of pairs) {
-        const text = `${query} [SEP] ${passage}`.slice(0, 1500);
-        const out = await classifier(text);
-        const rows = Array.isArray(out) ? out : [out];
-        const first = rows[0] as { label?: string; score?: number } | undefined;
-        scores.push(typeof first?.score === 'number' ? first.score : 0);
-      }
-      return scores;
+      if (!pairs.length) return [];
+      const texts = pairs.map(
+        ([query, passage]) => `${query} [SEP] ${passage}`.slice(0, 1500),
+      );
+      const out = await classifier(texts);
+      const rows = (Array.isArray(out) ? out : [out]) as Array<
+        { label?: string; score?: number } | Array<{ label?: string; score?: number }>
+      >;
+      return texts.map((_, i) => {
+        const row = rows[i];
+        const entry = Array.isArray(row) ? row[0] : row;
+        return typeof entry?.score === 'number' ? entry.score : 0;
+      });
     };
   } catch (err) {
     console.error(

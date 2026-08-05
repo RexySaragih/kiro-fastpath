@@ -27,7 +27,7 @@
       "name": "fastpath-file-save",
       "description": "Delta-index a file the moment the agent saves it — keeps retrieval fresh without prompt-time scans.",
       "trigger": "PostFileSave",
-      "matcher": "\\.(ts|tsx|js|jsx|mjs|cjs|py|go)$",
+      "matcher": "\\.(ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|kts|rs|rb|cs|php|swift|scala|c|h|cc|cpp|hpp|sql|sh|md|mdx|json|yaml|yml|toml)$",
       "action": {
         "type": "command",
         "command": "__FASTPATH_FILE_EVENT__"
@@ -39,10 +39,10 @@
       "name": "fastpath-file-create",
       "description": "Delta-index newly created files.",
       "trigger": "PostFileCreate",
-      "matcher": "\\.(ts|tsx|js|jsx|mjs|cjs|py|go)$",
+      "matcher": "\\.(ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|kts|rs|rb|cs|php|swift|scala|c|h|cc|cpp|hpp|sql|sh|md|mdx|json|yaml|yml|toml)$",
       "action": {
         "type": "command",
-        "command": "__FASTPATH_FILE_EVENT__"
+        "command": "__FASTPATH_FILE_EVENT_CREATE__"
       },
       "timeout": 30,
       "enabled": true
@@ -51,7 +51,7 @@
       "name": "fastpath-file-delete",
       "description": "Remove deleted files from the index.",
       "trigger": "PostFileDelete",
-      "matcher": "\\.(ts|tsx|js|jsx|mjs|cjs|py|go)$",
+      "matcher": "\\.(ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|kts|rs|rb|cs|php|swift|scala|c|h|cc|cpp|hpp|sql|sh|md|mdx|json|yaml|yml|toml)$",
       "action": {
         "type": "command",
         "command": "__FASTPATH_FILE_EVENT_DELETE__"
@@ -72,9 +72,9 @@
     },
     {
       "name": "fastpath-guardrail",
-      "description": "Discourage repo walking: logs directory-walk tool calls; blocks repeat offenders (FASTPATH_GUARDRAIL=off|warn|block|auto).",
+      "description": "Blocks unscoped repo walks and substitutes the indexed file list; warns on repeated file reads (FASTPATH_GUARDRAIL=off|warn|block|auto).",
       "trigger": "PreToolUse",
-      "matcher": "(?i)(listDirectory|list_directory|fileSearch|file_search|findFiles|find_files|glob|directorySearch)",
+      "matcher": "(listDirectory|ListDirectory|listdirectory|list_directory|fileSearch|FileSearch|filesearch|file_search|findFiles|FindFiles|find_files|glob|Glob|globFiles|glob_files|directorySearch|DirectorySearch|directory_search|readFile|read_file|readFiles|read_files|readMultipleFiles|read_multiple_files|fsRead|fs_read)",
       "action": {
         "type": "command",
         "command": "__FASTPATH_GUARDRAIL__"

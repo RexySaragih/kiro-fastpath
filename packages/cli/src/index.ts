@@ -42,7 +42,7 @@ import {
   runDoctor,
 } from './doctor.js';
 import { runBuiltinEval } from './eval.js';
-import { appendMetric, readMetrics, summarizeMetrics } from './metrics.js';
+import { appendMetric, readMetrics, summarizeMetrics, tokenLedger } from './metrics.js';
 import { runViz } from './viz.js';
 
 const ROOT = PACKAGE_ROOT;
@@ -62,13 +62,14 @@ Usage:
   fastpath status [workspace]            Show index stats
   fastpath doctor [workspace] [--json]
   fastpath warm                          Download MiniLM + reranker + grammars
-  fastpath eval [--office]               Retrieval eval (builtin or office goldens)
+  fastpath eval [--office|--golden]      Retrieval eval (smoke, office, or graded golden set)
+  fastpath bench [ws] [--tasks f.json]   Token benchmark: injected vs baseline discovery cost
   fastpath install-kiro|repair-kiro|use [workspace]
   fastpath rewire [--all] [workspace]    Re-run install-kiro (path refresh)
   fastpath unwire [workspace] [--purge-index]
   fastpath upgrade                       git pull + npm ci + build in FASTPATH_HOME
   fastpath repair-native                 Rebuild better-sqlite3 / onnx / sharp
-  fastpath home|version|metrics [--summary]
+  fastpath home|version|metrics [--summary|--tokens]
   fastpath memory list|forget <id>|distill [workspace]
   fastpath viz [workspace] [--no-open] [--out file.html]
 
@@ -333,6 +334,12 @@ function cmdInstallKiro(workspace: string): void {
       join(cliDist, 'session-start.js'),
     ),
     __FASTPATH_FILE_EVENT__: buildHookCommand(workspace, home, join(cliDist, 'file-event.js')),
+    __FASTPATH_FILE_EVENT_CREATE__: buildHookCommand(
+      workspace,
+      home,
+      join(cliDist, 'file-event.js'),
+      '--create',
+    ),
     __FASTPATH_FILE_EVENT_DELETE__: buildHookCommand(
       workspace,
       home,
@@ -386,11 +393,14 @@ function cmdInstallKiro(workspace: string): void {
     timeout: McpTimeouts.CONNECT_MS,
     requestTimeout: McpTimeouts.REQUEST_MS,
     autoApprove: [
+      'find',
+      'impact',
+      'memory',
+      // Legacy names remain callable for older agent profiles.
       'search',
       'symbol',
       'context_for_task',
       'grep_fast',
-      'impact',
       'memory_save',
       'memory_recall',
     ],
@@ -568,7 +578,15 @@ function cmdRepairNative(): void {
   process.exit(r.status ?? 2);
 }
 
-async function cmdEval(office: boolean): Promise<void> {
+async function cmdEval(office: boolean, golden = false): Promise<void> {
+  if (golden) {
+    const { runGoldenEval, formatGolden, goldenFailures } = await import('./eval-golden.js');
+    const metrics = await runGoldenEval(ROOT);
+    console.log(formatGolden(metrics));
+    const failures = goldenFailures(metrics);
+    for (const f of failures) console.log(`  BELOW THRESHOLD ${f}`);
+    process.exit(failures.length ? 2 : 0);
+  }
   if (office) {
     const { runOfficeEval } = await import('./eval-office.js');
     const result = await runOfficeEval(ROOT);
@@ -654,7 +672,28 @@ async function main(): Promise<void> {
     }
     case 'eval': {
       const office = takeFlag(rest, '--office');
-      await cmdEval(office.set);
+      const golden = takeFlag(office.args, '--golden');
+      await cmdEval(office.set, golden.set);
+      break;
+    }
+    case 'bench': {
+      const { loadBenchTasks, runBench, formatBench } = await import('./bench.js');
+      let args = rest;
+      let tasksPath: string | undefined;
+      const idx = args.indexOf('--tasks');
+      if (idx >= 0) {
+        tasksPath = args[idx + 1];
+        args = args.filter((_, i) => i !== idx && i !== idx + 1);
+      }
+      const workspace = workspaceFromArgs(args);
+      const tasks = tasksPath
+        ? loadBenchTasks(resolve(tasksPath))
+        : [
+            { prompt: 'where do we validate the auth token' },
+            { prompt: 'user login flow' },
+            { prompt: 'how is tax calculated' },
+          ];
+      console.log(formatBench(await runBench(workspace, tasks)));
       break;
     }
     case 'install-kiro':
@@ -699,8 +738,10 @@ async function main(): Promise<void> {
     }
     case 'metrics': {
       const summary = takeFlag(rest, '--summary');
+      const tokens = takeFlag(summary.args, '--tokens');
       const events = readMetrics();
-      if (summary.set) console.log(summarizeMetrics(events));
+      if (tokens.set) console.log(JSON.stringify(tokenLedger(events), null, 2));
+      else if (summary.set) console.log(summarizeMetrics(events));
       else console.log(JSON.stringify(events, null, 2));
       break;
     }

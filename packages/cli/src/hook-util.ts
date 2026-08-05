@@ -4,6 +4,10 @@
  * block the user — callers always exit 0 unless intentionally blocking.
  */
 
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { userFastpathDir } from './config.js';
+
 export interface HookPayload {
   prompt?: string;
   cwd?: string;
@@ -86,4 +90,109 @@ export function withTimeout<T>(
         resolve({ timedOut: true });
       });
   });
+}
+
+/* ---------------------------------------------------------------------------
+ * Payload discovery (FASTPATH_HOOK_DEBUG=1)
+ * The hook payload contract is version-dependent and currently guessed. One
+ * debug session resolves it: capture raw stdin + env key names (values never
+ * recorded) to a capped JSONL file.
+ * ------------------------------------------------------------------------ */
+
+const PAYLOAD_LOG_MAX_LINES = 200;
+const PAYLOAD_RAW_MAX_CHARS = 4000;
+const HOOK_ENV_PREFIXES = ['KIRO', 'FASTPATH', 'USER_PROMPT', 'HOOK', 'TOOL', 'FILE'];
+
+export function hookDebugEnabled(): boolean {
+  return process.env.FASTPATH_HOOK_DEBUG === '1';
+}
+
+export function hookPayloadLogPath(): string {
+  return join(userFastpathDir(), 'hook-payloads.jsonl');
+}
+
+function candidateEnvKeys(): string[] {
+  return Object.keys(process.env)
+    .filter((k) => HOOK_ENV_PREFIXES.some((p) => k.toUpperCase().startsWith(p)))
+    .sort();
+}
+
+function appendCapped(path: string, line: string, maxLines: number): void {
+  appendFileSync(path, line);
+  const body = readFileSync(path, 'utf8').split('\n').filter(Boolean);
+  if (body.length > maxLines) {
+    writeFileSync(path, `${body.slice(-maxLines).join('\n')}\n`);
+  }
+}
+
+/** Record the raw hook payload for contract discovery. No-op unless debugging. */
+export function recordHookPayload(hook: string, raw: string, payload: HookPayload): void {
+  if (!hookDebugEnabled()) return;
+  try {
+    mkdirSync(userFastpathDir(), { recursive: true });
+    appendCapped(
+      hookPayloadLogPath(),
+      `${JSON.stringify({
+        at: new Date().toISOString(),
+        hook,
+        argv: process.argv.slice(2),
+        rawLength: raw.length,
+        raw: raw.slice(0, PAYLOAD_RAW_MAX_CHARS),
+        payloadKeys: Object.keys(payload),
+        envKeys: candidateEnvKeys(),
+      })}\n`,
+      PAYLOAD_LOG_MAX_LINES,
+    );
+  } catch {
+    /* never break the hook */
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Liveness heartbeats
+ * "Installed on disk" is not "working". Every hook stamps its entry so doctor
+ * can report UNVERIFIED instead of READY for hooks that have never fired.
+ * ------------------------------------------------------------------------ */
+
+export type HookName =
+  | 'prompt-inject'
+  | 'session-start'
+  | 'file-save'
+  | 'file-create'
+  | 'file-delete'
+  | 'memory-capture'
+  | 'guardrail';
+
+export interface HeartbeatFile {
+  hooks: Record<string, { lastAt: string; count: number }>;
+}
+
+export function heartbeatPath(): string {
+  return join(userFastpathDir(), 'heartbeats.json');
+}
+
+export function readHeartbeats(): HeartbeatFile {
+  try {
+    if (!existsSync(heartbeatPath())) return { hooks: {} };
+    const raw = JSON.parse(readFileSync(heartbeatPath(), 'utf8')) as Partial<HeartbeatFile>;
+    return { hooks: raw.hooks ?? {} };
+  } catch {
+    return { hooks: {} };
+  }
+}
+
+/** Stamp hook entry. Cheap (one small JSON write), never throws. */
+export function recordHeartbeat(hook: HookName): void {
+  try {
+    mkdirSync(userFastpathDir(), { recursive: true });
+    const file = readHeartbeats();
+    const prior = file.hooks[hook];
+    file.hooks[hook] = {
+      lastAt: new Date().toISOString(),
+      count: (prior?.count ?? 0) + 1,
+    };
+    writeFileSync(heartbeatPath(), `${JSON.stringify(file, null, 2)}\n`);
+  } catch {
+    /* never break the hook */
+  }
 }

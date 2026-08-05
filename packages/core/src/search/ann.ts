@@ -66,6 +66,46 @@ export function clearLshForSymbol(db: Database.Database, symbolId: number): void
   db.prepare(`DELETE FROM vector_lsh WHERE symbol_id = ?`).run(symbolId);
 }
 
+/** Same LSH scheme for memory vectors, so recall stops scanning every row. */
+export function indexMemoryLsh(
+  db: Database.Database,
+  memoryId: number,
+  vec: Float32Array,
+): void {
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO memory_lsh(table_id, bucket, memory_id) VALUES (?, ?, ?)`,
+  );
+  const tables = planesForDim(vec.length);
+  for (let t = 0; t < tables.length; t++) {
+    insert.run(t, hashBucket(vec, tables[t]!), memoryId);
+  }
+}
+
+export function clearMemoryLsh(db: Database.Database, memoryId: number): void {
+  db.prepare(`DELETE FROM memory_lsh WHERE memory_id = ?`).run(memoryId);
+}
+
+export function memoryLshCandidateIds(
+  db: Database.Database,
+  query: Float32Array,
+  limit = 200,
+): number[] {
+  const tables = planesForDim(query.length);
+  const ids = new Set<number>();
+  const stmt = db.prepare(
+    `SELECT memory_id FROM memory_lsh WHERE table_id = ? AND bucket = ? LIMIT 200`,
+  );
+  for (let t = 0; t < tables.length; t++) {
+    for (const row of stmt.all(t, hashBucket(query, tables[t]!)) as Array<{
+      memory_id: number;
+    }>) {
+      ids.add(row.memory_id);
+      if (ids.size >= limit) return [...ids];
+    }
+  }
+  return [...ids];
+}
+
 /** Candidate symbol ids via LSH (union of matching buckets). */
 export function lshCandidateIds(
   db: Database.Database,

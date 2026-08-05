@@ -16,8 +16,10 @@ import {
   extractFilePaths,
   parseHookPayload,
   readStdinText,
-  withTimeout,
+  recordHeartbeat,
+  recordHookPayload,
   workspaceFromPayload,
+  withTimeout,
 } from './hook-util.js';
 import { appendMetric } from './metrics.js';
 import { recordTouchedPaths } from './state.js';
@@ -32,7 +34,12 @@ function isIndexable(path: string): boolean {
 
 async function run(): Promise<void> {
   const isDelete = process.argv.includes('--delete');
-  const payload = parseHookPayload(await readStdinText());
+  const isCreate = process.argv.includes('--create');
+  const hookName = isDelete ? 'file-delete' : isCreate ? 'file-create' : 'file-save';
+  recordHeartbeat(hookName);
+  const raw = await readStdinText();
+  const payload = parseHookPayload(raw);
+  recordHookPayload(hookName, raw, payload);
   const workspace = workspaceFromPayload(payload);
   const started = Date.now();
 

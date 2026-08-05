@@ -11,6 +11,18 @@ const READ_ONLY = {
   openWorldHint: false,
 } as const;
 
+const SYMBOL_KINDS = [
+  'function',
+  'class',
+  'method',
+  'interface',
+  'type',
+  'const',
+  'variable',
+  'export',
+  'other',
+] as const;
+
 const PATH_PREFIX_DESC =
   'Optional workspace-relative directory/file prefix to restrict results, e.g. "src/modules/auth" or "test/". Filters by indexed path, not by filename glob.';
 
@@ -144,31 +156,78 @@ export const grepFastTool: Tool = {
 export const impactTool: Tool = {
   name: 'impact',
   description:
-    'Blast-radius for a known symbol: definitions, callers (call graph), importers (import edges), and textual references. ' +
-    'USE when: before rename/API change/delete — "who uses AuthService?", "callers of performVaultLogin". ' +
-    'DO NOT use when: you do not yet know the symbol name (find it with symbol/search first); you only need the definition location → use symbol; you need arbitrary text matches → use grep_fast. ' +
-    'Requires a symbol identifier, not a prose question.',
+    'Blast radius of a symbol: definitions, callers, importers, refs. Use before renames/API changes.',
   inputSchema: {
     type: 'object',
     properties: {
-      name: {
-        type: 'string',
-        description: 'Exact symbol identifier to analyze, e.g. "AuthService" or "performVaultLogin".',
-      },
-      depth: {
-        type: 'number',
-        description: 'How many importer hops to traverse (1–3, default 1). Higher = wider, noisier.',
-      },
-      top_k: {
-        type: 'number',
-        description: 'Max items per result section (definitions/callers/importers/refs).',
-      },
+      name: { type: 'string', description: 'Symbol identifier.' },
+      depth: { type: 'number', description: 'Importer hops 1-3 (default 1).' },
+      top_k: { type: 'number', description: 'Max items per section.' },
     },
     required: ['name'],
     additionalProperties: false,
   },
   annotations: READ_ONLY,
 };
+
+/**
+ * `find` collapses search/symbol/grep_fast/context_for_task into one schema.
+ * Four tool schemas + four long descriptions were shipped on every turn; one
+ * mode parameter costs a fraction of that. Legacy names stay routable.
+ */
+export const findTool: Tool = {
+  name: 'find',
+  description:
+    'Locate code in the indexed repo instead of listDirectory/glob/grep. ' +
+    'mode: search=concept, symbol=identifier, grep=regex in file contents, context=task starter pack.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'Concept, identifier, regex, or task.' },
+      mode: {
+        type: 'string',
+        enum: ['search', 'symbol', 'grep', 'context'],
+        description: 'Default search.',
+      },
+      kind: { type: 'string', enum: [...SYMBOL_KINDS], description: 'mode=symbol filter.' },
+      top_k: { type: 'number', description: `Max results (8, cap ${HARD_MAX_TOP_K}).` },
+      path_prefix: { type: 'string', description: 'Indexed path prefix, e.g. "src/auth".' },
+    },
+    required: ['query'],
+    additionalProperties: false,
+  },
+  annotations: READ_ONLY,
+};
+
+const findSchema = z.object({
+  query: z.string().min(1).max(1000),
+  mode: z.enum(['search', 'symbol', 'grep', 'context']).optional(),
+  kind: z.enum(SYMBOL_KINDS).optional(),
+  top_k: z.number().int().positive().max(HARD_MAX_TOP_K).optional(),
+  path_prefix: z.string().max(500).optional(),
+});
+
+export async function handleFind(client: FastpathClient, args: unknown) {
+  const parsed = findSchema.safeParse(args);
+  if (!parsed.success) return toolErr(parsed.error.message);
+  const { query, mode = 'search', kind, top_k, path_prefix } = parsed.data;
+  switch (mode) {
+    case 'symbol':
+      return runHits(client, `## symbol: ${query}`, () =>
+        client.symbol(query, kind, top_k),
+      );
+    case 'grep':
+      return runHits(client, `## grep: ${query}`, () =>
+        client.grep(query, top_k, path_prefix),
+      );
+    case 'context':
+      return runHits(client, '## context', () => client.context(query, top_k));
+    default:
+      return runHits(client, `## search: ${query}`, () =>
+        client.search(query, top_k, path_prefix),
+      );
+  }
+}
 
 const searchSchema = z.object({
   query: z.string().min(1).max(500),

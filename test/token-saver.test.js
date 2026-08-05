@@ -163,7 +163,10 @@ test('Install: all event hooks + Scout/Architect wired with no placeholders', ()
     assert.match(scout, /claude-sonnet-5/);
     assert.doesNotMatch(scout, /capability:\s*write\b/);
     assert.doesNotMatch(scout, /__FASTPATH_/);
-    assert.match(scout, /memory_recall/);
+    // 3-tool surface (find / impact / memory) — collapsed from the legacy 7.
+    assert.match(scout, /- find\n/);
+    assert.match(scout, /- memory\n/);
+    assert.doesNotMatch(scout, /memory_recall/);
     assert.ok(!existsSync(join(dir, '.kiro/agents/Marshal.md')));
 
     const doctor = spawnSync(process.execPath, [cli, 'doctor', dir], { encoding: 'utf8', env });
@@ -196,11 +199,11 @@ test('Guardrail: warn logs but allows; block rejects with exit 2; auto blocks af
     const blocked = run('block');
     assert.equal(blocked.status, 2);
     assert.match(blocked.stderr, /FastPath guardrail/);
-    assert.match(blocked.stderr, /search \/ symbol \/ grep_fast/);
+    assert.match(blocked.stderr, /find \/ impact \/ memory/);
 
     assert.equal(run('off').status, 0);
 
-    // auto: allowance consumed by the runs above (same session) → block
+    // auto: this payload names no path, so the walk is unscoped → block
     const auto = run('auto');
     assert.equal(auto.status, 2, auto.stderr);
 

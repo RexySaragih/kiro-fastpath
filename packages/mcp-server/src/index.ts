@@ -12,23 +12,21 @@ import {
 import { warnIfRepoDotEnvPresent } from './clients/base-client.js';
 import { FastpathClient } from './clients/fastpath-client.js';
 import {
+  handleMemory,
   handleMemoryRecall,
   handleMemorySave,
-  memoryRecallTool,
-  memorySaveTool,
+  memoryTool,
 } from './tools/memory.js';
 import {
-  contextForTaskTool,
-  grepFastTool,
+  findTool,
   handleContextForTask,
+  handleFind,
   handleGrepFast,
   handleImpact,
   handleSearch,
   handleSymbol,
   impactTool,
   resolveWorkspace,
-  searchTool,
-  symbolTool,
 } from './tools/search.js';
 
 const SERVER_NAME = 'fastpath-mcp';
@@ -59,15 +57,9 @@ function logTool(tool: string, status: 'ok' | 'error', durationMs: number): void
 async function start(): Promise<void> {
   warnIfRepoDotEnvPresent();
   const client = new FastpathClient(resolveWorkspace());
-  const tools = [
-    searchTool,
-    symbolTool,
-    contextForTaskTool,
-    grepFastTool,
-    impactTool,
-    memorySaveTool,
-    memoryRecallTool,
-  ];
+  // Advertised surface is 3 tools; the legacy 7 names stay callable below so
+  // older agent profiles keep working without paying for extra schemas.
+  const tools = [findTool, impactTool, memoryTool];
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
 
@@ -78,6 +70,12 @@ async function start(): Promise<void> {
     try {
       let result;
       switch (name) {
+        case 'find':
+          result = await handleFind(client, args);
+          break;
+        case 'memory':
+          result = await handleMemory(client, args);
+          break;
         case 'search':
           result = await handleSearch(client, args);
           break;

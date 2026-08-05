@@ -22,6 +22,7 @@ import {
   resolveFastpathHome,
 } from './config.js';
 import { appendMetric, readMetrics } from './metrics.js';
+import { readHeartbeats, type HookName } from './hook-util.js';
 
 const coreRequire = createRequire(join(PACKAGE_ROOT, 'packages/core/package.json'));
 
@@ -41,6 +42,68 @@ export function findInvalidPermissionCapabilities(body: string): string[] {
   return INVALID_PERMISSION_CAPABILITIES.filter((cap) =>
     new RegExp(`capability:\\s*["']?${cap}["']?\\b`).test(body),
   );
+}
+
+/**
+ * Hook `matcher` values are compiled as JS RegExp by the host. Inline flags
+ * like `(?i)` are a syntax error there, so a bad matcher silently never fires.
+ */
+export function findInvalidHookMatchers(
+  hooks: Array<{ name?: string; matcher?: string }>,
+): string[] {
+  const bad: string[] = [];
+  for (const hook of hooks) {
+    if (typeof hook.matcher !== 'string' || !hook.matcher) continue;
+    const label = hook.name ?? 'unnamed hook';
+    if (/\(\?[a-zA-Z]+\)/.test(hook.matcher)) {
+      bad.push(`${label}: inline flags (e.g. \`(?i)\`) are invalid in JS RegExp`);
+      continue;
+    }
+    try {
+      new RegExp(hook.matcher);
+    } catch (err) {
+      bad.push(`${label}: ${err instanceof Error ? err.message : 'invalid regex'}`);
+    }
+  }
+  return bad;
+}
+
+/** Hooks whose liveness we assert (7 event hooks → 7 heartbeats). */
+const LIVENESS_HOOKS: HookName[] = [
+  'prompt-inject',
+  'session-start',
+  'file-save',
+  'file-create',
+  'file-delete',
+  'memory-capture',
+  'guardrail',
+];
+const LIVENESS_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+
+export interface HookLiveness {
+  verified: boolean;
+  fired: string[];
+  never: string[];
+  stale: string[];
+}
+
+/** Disk presence is not proof of function — require a recent heartbeat. */
+export function checkHookLiveness(now = Date.now()): HookLiveness {
+  const beats = readHeartbeats().hooks;
+  const fired: string[] = [];
+  const never: string[] = [];
+  const stale: string[] = [];
+  for (const hook of LIVENESS_HOOKS) {
+    const beat = beats[hook];
+    if (!beat) {
+      never.push(hook);
+      continue;
+    }
+    const age = now - Date.parse(beat.lastAt);
+    if (Number.isNaN(age) || age > LIVENESS_MAX_AGE_MS) stale.push(hook);
+    else fired.push(hook);
+  }
+  return { verified: never.length === 0 && stale.length === 0, fired, never, stale };
 }
 
 function estimateTokens(text: string): number {
@@ -165,6 +228,7 @@ export interface DoctorResult {
   schemaVersion: number;
   integrityOk: boolean | null;
   searchSmokeOk: boolean | null;
+  hookLiveness: HookLiveness;
   version: string;
   home: string;
   workspace: string;
@@ -373,11 +437,22 @@ export async function runDoctor(workspace: string): Promise<DoctorResult> {
       try {
         const hookJson = JSON.parse(hookBody) as {
           hooks?: Array<{
+            name?: string;
             trigger?: string;
+            matcher?: string;
             action?: { command?: string };
             enabled?: boolean;
           }>;
         };
+
+        const badMatchers = findInvalidHookMatchers(hookJson.hooks ?? []);
+        if (badMatchers.length) {
+          for (const bad of badMatchers) {
+            issues.push(`hook matcher never compiles — ${bad} (re-run \`fastpath install-kiro\`)`);
+          }
+        } else {
+          ok.push('Hook matchers compile as JS RegExp');
+        }
         const inject = hookJson.hooks?.find((h) => h.trigger === 'UserPromptSubmit');
         if (!inject) {
           issues.push('fastpath hook missing UserPromptSubmit trigger');
@@ -519,6 +594,19 @@ export async function runDoctor(workspace: string): Promise<DoctorResult> {
     }
   }
 
+  const hookLiveness = checkHookLiveness();
+  if (hookLiveness.fired.length) {
+    ok.push(`Hooks fired recently: ${hookLiveness.fired.join(', ')}`);
+  }
+  if (hookLiveness.never.length) {
+    notes.push(
+      `Hooks never fired: ${hookLiveness.never.join(', ')} — enable them in the Kiro Hook UI, then re-run doctor (FASTPATH_HOOK_DEBUG=1 to capture payloads)`,
+    );
+  }
+  if (hookLiveness.stale.length) {
+    notes.push(`Hooks stale (>14d): ${hookLiveness.stale.join(', ')}`);
+  }
+
   const ready = issues.length === 0;
   appendMetric({
     type: 'doctor',
@@ -539,6 +627,7 @@ export async function runDoctor(workspace: string): Promise<DoctorResult> {
     schemaVersion,
     integrityOk,
     searchSmokeOk,
+    hookLiveness,
     version: readPackageVersion(),
     home,
     workspace,
@@ -554,9 +643,14 @@ export function printDoctor(result: DoctorResult, asJson: boolean): void {
   for (const line of result.ok) console.log(`OK  ${line}`);
   for (const line of result.notes) console.log(`..  ${line}`);
   for (const line of result.issues) console.log(`!!  ${line}`);
-  if (result.ready) {
+  if (result.ready && !result.hookLiveness.verified) {
+    const missing = [...result.hookLiveness.never, ...result.hookLiveness.stale];
+    console.log('\nUNVERIFIED — install looks correct but these hooks have not fired:');
+    console.log(`  ${missing.join(', ')}`);
+    console.log('Enable them in the Kiro Hook UI, run one prompt, then re-run doctor.');
+  } else if (result.ready) {
     console.log('\nSCOUT READY');
-    console.log('In Kiro: select agent "Scout". Verify hooks enabled in Hook UI.');
+    console.log('In Kiro: select agent "Scout". Hook liveness verified by heartbeat.');
   } else {
     console.log(`\nNOT READY (${result.issues.length} issue(s))`);
   }

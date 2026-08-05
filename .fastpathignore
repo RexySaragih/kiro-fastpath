@@ -1,0 +1,12 @@
+# FastPath ignore (also respects .gitignore and .kiroignore)
+node_modules/
+dist/
+build/
+coverage/
+.yarn/
+.nx/
+.next/
+*.min.js
+# Eval fixtures: keep them out of this repo's own index so dogfooding queries
+# don't compete with fixture symbols (AuthService, calculate_tax, ...).
+fixtures/
