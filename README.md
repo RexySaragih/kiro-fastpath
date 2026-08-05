@@ -102,7 +102,7 @@ You can combine them in theory; for one tool, FastPath’s bet is **forced retri
 Indexing alone does nothing. Kiro only uses FastPath when all four exist:
 
 1. **Auto-inject** — `.kiro/hooks/fastpath-context.json`: `UserPromptSubmit` injects retrieved code + memories + a routing hint; `SessionStart` warms and catches up git deltas; `PostFileSave/Create/Delete` keep the index fresh at save time; `Stop` captures a session memory.
-2. **Guardrail** — `PreToolUse` hook logs and (configurably) blocks directory-walk tools (`FASTPATH_GUARDRAIL=auto|warn|block|off`).
+2. **Guardrail** — `PreToolUse` hook logs and (configurably) blocks directory walks and recursive shell discovery (`grep -r` / `rg` / `find`); `FASTPATH_GUARDRAIL=auto|warn|block|off`.
 3. **Tool binding** — agents have inline `mcpServers.fastpath` + `tools: [..., "@fastpath"]`.
 4. **Behavior** — steering + agent prompts: max ~3 file reads, no repo walks, recall memory before re-deriving.
 

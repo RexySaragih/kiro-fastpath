@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
  * PreToolUse hook helper — the anti-token-burn guardrail.
- * Repo walks (listDirectory / glob / file search) are the biggest context
- * polluters in Kiro. This hook logs every walk attempt and, depending on
- * FASTPATH_GUARDRAIL, blocks them (exit 2 → STDERR shown to the agent)
- * and points the agent back to FastPath retrieval.
+ * Repo walks (listDirectory / glob / file search) and recursive shell discovery
+ * (grep -r / rg / find -name) are the biggest context polluters in Kiro. This
+ * hook logs every attempt and, depending on FASTPATH_GUARDRAIL, blocks them
+ * (exit 2 → STDERR shown to the agent) and points the agent back to FastPath.
  *
  * Modes:
  *   off   — do nothing
  *   warn  — log only (payload discovery; no behavior change)
- *   block — block every matched walk
+ *   block — block every matched walk / shell discovery
  *   auto  — allow scoped walks (explicit path, depth <= 1), block the rest (default)
  *
  * A blocked walk is answered, not just refused: the indexed file list for the
@@ -21,7 +21,13 @@ import { join } from 'node:path';
 import { userFastpathDir } from './config.js';
 import { appendMetric, appendRotatingLine, WALK_TOKENS_AVOIDED } from './metrics.js';
 import { listIndexedPaths } from '@fastpath/core';
-import { isScopedWalk, readWalkRequest } from './guardrail-policy.js';
+import {
+  isRepoDiscoveryShell,
+  isScopedWalk,
+  isShellTool,
+  readShellCommand,
+  readWalkRequest,
+} from './guardrail-policy.js';
 import {
   parseHookPayload,
   readStdinText,
@@ -44,6 +50,11 @@ const BLOCK_MESSAGE =
   'Locate code with FastPath MCP tools instead: find / impact / memory. ' +
   'Scoped walks (explicit path, depth <= 1) are allowed.';
 
+const SHELL_DISCOVERY_MESSAGE =
+  'FastPath guardrail: recursive shell search of the workspace is disabled. ' +
+  'For repo content use FastPath MCP `find` (mode: grep / search / symbol). ' +
+  'Shell grep/rg is OK on command stdout or a single known file — not `grep -r` / `rg` / `find` for discovery.';
+
 function guardrailMode(): GuardrailMode {
   const raw = (process.env.FASTPATH_GUARDRAIL || 'auto').toLowerCase().trim();
   if (raw === 'off' || raw === 'warn' || raw === 'block' || raw === 'auto') return raw;
@@ -62,9 +73,8 @@ interface GuardrailEvent {
   blocked: boolean;
   payloadKeys: string[];
   path?: string;
+  kind?: 'walk' | 'read' | 'shell-discovery';
 }
-
-
 
 function appendEvent(event: GuardrailEvent): void {
   appendRotatingLine(eventsLogPath(), JSON.stringify(event));
@@ -121,6 +131,40 @@ async function run(): Promise<void> {
   const workspace = workspaceFromPayload(payload);
   const request = readWalkRequest(payload);
 
+  // Shell: block recursive repo discovery; allow stdout filters and single-file greps.
+  if (isShellTool(tool)) {
+    const command = readShellCommand(payload);
+    const discovery = isRepoDiscoveryShell(command);
+    const shouldBlock = discovery && (mode === 'block' || mode === 'auto');
+    appendEvent({
+      at: new Date().toISOString(),
+      tool,
+      session,
+      mode,
+      blocked: shouldBlock,
+      payloadKeys: Object.keys(payload),
+      path: command.slice(0, 200),
+      kind: 'shell-discovery',
+    });
+    appendMetric({
+      type: 'guardrail',
+      at: new Date().toISOString(),
+      session,
+      tool,
+      blocked: shouldBlock,
+      tokensAvoided: shouldBlock ? WALK_TOKENS_AVOIDED : 0,
+    });
+    if (discovery && mode === 'warn') {
+      console.error(SHELL_DISCOVERY_MESSAGE);
+      return;
+    }
+    if (shouldBlock) {
+      console.error(SHELL_DISCOVERY_MESSAGE);
+      process.exit(BLOCK_EXIT_CODE);
+    }
+    return;
+  }
+
   // Repeated reads of one file are a comparable token sink to walking; warn,
   // never block, since the read is usually legitimate the first time.
   if (READ_TOOL.test(tool)) {
@@ -133,6 +177,7 @@ async function run(): Promise<void> {
       blocked: false,
       payloadKeys: Object.keys(payload),
       path: request.path,
+      kind: 'read',
     });
     if (seen >= DUPLICATE_READ_WARN_AT) {
       console.error(
@@ -153,6 +198,7 @@ async function run(): Promise<void> {
     blocked: shouldBlock,
     payloadKeys: Object.keys(payload),
     path: request.path,
+    kind: 'walk',
   });
   appendMetric({
     type: 'guardrail',

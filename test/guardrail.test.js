@@ -37,6 +37,70 @@ test('scoped walks are allowed, unscoped walks are not', async () => {
   assert.equal(readWalkRequest({ arguments: { directory: 'lib' } }).path, 'lib');
 });
 
+test('shell discovery detects repo greps but allows stdout filters', async () => {
+  const { isRepoDiscoveryShell, isShellTool, readShellCommand } = await import(
+    join(root, 'packages/cli/dist/guardrail-policy.js')
+  );
+
+  assert.equal(isShellTool('execute_bash'), true);
+  assert.equal(isShellTool('Shell'), true);
+  assert.equal(isShellTool('listDirectory'), false);
+
+  assert.equal(isRepoDiscoveryShell('grep -rln "(?i)" .'), true);
+  assert.equal(isRepoDiscoveryShell('grep -n pattern src/'), true);
+  assert.equal(isRepoDiscoveryShell('rg "matcher" packages'), true);
+  assert.equal(isRepoDiscoveryShell('rg pattern'), true);
+  assert.equal(isRepoDiscoveryShell('find . -name "*.ts"'), true);
+  assert.equal(isRepoDiscoveryShell('git grep TODO'), true);
+
+  assert.equal(isRepoDiscoveryShell('npm test 2>&1 | rg "not ok"'), false);
+  assert.equal(isRepoDiscoveryShell('grep -n pattern src/app.ts'), false);
+  assert.equal(isRepoDiscoveryShell('rg foo packages/cli/src/guardrail.ts'), false);
+  assert.equal(isRepoDiscoveryShell('git status --porcelain'), false);
+
+  assert.equal(
+    readShellCommand({ tool_name: 'execute_bash', tool_input: { command: 'rg x .' } }),
+    'rg x .',
+  );
+});
+
+test('recursive shell discovery is blocked; stdout filter is allowed', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fastpath-guard-shell-'));
+  const userDir = mkdtempSync(join(tmpdir(), 'fastpath-userdir-'));
+  try {
+    const env = { ...baseEnv, FASTPATH_WORKSPACE: dir, FASTPATH_USER_DIR: userDir };
+
+    const blocked = spawnSync(process.execPath, [guardrail], {
+      encoding: 'utf8',
+      env,
+      input: JSON.stringify({
+        tool_name: 'execute_bash',
+        session_id: 'sshell',
+        cwd: dir,
+        tool_input: { command: 'grep -rln matcher .' },
+      }),
+    });
+    assert.equal(blocked.status, 2);
+    assert.match(blocked.stderr, /recursive shell search/);
+    assert.match(blocked.stderr, /find.*mode: grep/i);
+
+    const allowed = spawnSync(process.execPath, [guardrail], {
+      encoding: 'utf8',
+      env,
+      input: JSON.stringify({
+        tool_name: 'execute_bash',
+        session_id: 'sshell',
+        cwd: dir,
+        tool_input: { command: 'npm test 2>&1 | grep "not ok"' },
+      }),
+    });
+    assert.equal(allowed.status, 0, allowed.stderr);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(userDir, { recursive: true, force: true });
+  }
+});
+
 test('blocked walk is answered with the indexed file list', async () => {
   const { indexWorkspace } = await import(join(root, 'packages/core/dist/index.js'));
   const dir = mkdtempSync(join(tmpdir(), 'fastpath-guard-'));

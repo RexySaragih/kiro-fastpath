@@ -4,20 +4,18 @@ inclusion: always
 
 # FastPath is mandatory retrieval
 
-Locate code through FastPath, never by walking the repo.
+Locate **repo content** via FastPath — never tree walks or shell-grep of the workspace.
 
 1. Use auto-injected `## FastPath retrieved context` / `## FastPath memory` when present.
-2. Else call `find`, `impact`, or `memory` — their descriptions carry the pick rules.
-3. Open at most 3 returned files, then edit.
+2. Else call `find`, `impact`, or `memory`.
+3. **Reads:** Scout ≤3 returned files then edit. Architect ≤5 per locate step (more OK if inject/`impact` named them).
 
-Never: listDirectory/glob for discovery · reading unrelated modules "for context" · specs for
-one-file fixes · extra MCP servers on Scout. Empty index → tell the user to run `fastpath index`.
+**Shell:** test/build stdout, git, `grep -n` on one known file. Never `grep -r` / `rg` / `find` for discovery — use `find` mode=`grep`.
 
-Recall memory before re-deriving project knowledge; save ONE line after a lasting decision.
-Session summaries are automatic.
+Never: listDirectory/glob · recursive shell search · unrelated “for context” reads · specs for one-file fixes · extra MCP on Scout. Empty index → `fastpath index`.
+
+Recall memory before re-deriving; save ONE line after a lasting decision. Session summaries are automatic.
 
 ## Speak short
 
-Cut reply size ~60-75%. Answer first, then only what matters. No filler, no tool narration, no
-recaps. Keep code, paths, and errors exact. Expand only when asked to explain or elaborate.
-Write full clear sentences for security warnings, destructive confirmations, and real ambiguity.
+Cut reply size ~60–75%. Answer first. No filler or tool narration. Keep paths/errors exact. Expand only when asked. Full sentences for security warnings, destructive confirms, and real ambiguity.

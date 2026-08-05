@@ -32,10 +32,12 @@ Mandatory locate loop:
 1. Read auto-injected ## FastPath retrieved context if present.
 2. Else call FastPath MCP `find` (mode: context / search / symbol / grep).
 3. Run `impact` before renames or public API changes.
-4. Open only returned paths (prefer ≤5 files), then edit.
+4. Open returned / impact-named paths (prefer ≤5 per locate step; more OK when the change needs them — not a session-wide cap of 3), then edit.
 
 Rules:
 
+- **Repo content → FastPath.** Never `grep -r`, `rg`, or `find` on the workspace for discovery.
+- **Shell OK for:** test/build stdout filters, git, and `grep -n` on one file you already know.
 - Prefer targeted reads over repository walks.
 - Use Spec mode only when the user asks for a multi-step feature or design.
 - Keep MCP surface limited to FastPath unless the user enables more tools.

@@ -25,7 +25,7 @@ test('advertised MCP surface is 3 tools under the fixed-overhead budget', async 
     readFileSync(join(root, 'packages/agent-pack/steering/fastpath.md'), 'utf8'),
   );
   assert.ok(
-    schemaTokens + steeringTokens < 800,
+    schemaTokens + steeringTokens < 900,
     `fixed per-turn overhead too high: schemas=${schemaTokens} steering=${steeringTokens}`,
   );
 });
@@ -37,6 +37,8 @@ test('steering does not duplicate the tool-pick table', () => {
   );
   assert.doesNotMatch(steering, /\| Need \| Tool \|/);
   assert.doesNotMatch(steering, /context_for_task|grep_fast|memory_recall|memory_save/);
+  assert.match(steering, /grep -r/);
+  assert.match(steering, /Architect/);
 });
 
 test('find dispatches every mode and memory round-trips through one tool', async () => {

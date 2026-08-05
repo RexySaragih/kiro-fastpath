@@ -58,6 +58,7 @@ Do **not** call `find` to “confirm” text you are about to add. Do not explor
 ## Hard rules
 
 - NEVER listDirectory / glob / walk the workspace to "discover" files.
+- NEVER `grep -r` / `rg` / recursive `find` on the repo — use FastPath `find` (you have no shell).
 - NEVER spawn subagents for exploration.
 - NEVER create specs/design/task lists for small asks.
 - If FastPath returns nothing and no path was given, ask the user for a path/symbol — do not scan.

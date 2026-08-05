@@ -72,9 +72,9 @@
     },
     {
       "name": "fastpath-guardrail",
-      "description": "Blocks unscoped repo walks and substitutes the indexed file list; warns on repeated file reads (FASTPATH_GUARDRAIL=off|warn|block|auto).",
+      "description": "Blocks unscoped repo walks and recursive shell discovery (grep -r / rg / find); substitutes indexed listings; warns on repeated file reads (FASTPATH_GUARDRAIL=off|warn|block|auto).",
       "trigger": "PreToolUse",
-      "matcher": "(listDirectory|ListDirectory|listdirectory|list_directory|fileSearch|FileSearch|filesearch|file_search|findFiles|FindFiles|find_files|glob|Glob|globFiles|glob_files|directorySearch|DirectorySearch|directory_search|readFile|read_file|readFiles|read_files|readMultipleFiles|read_multiple_files|fsRead|fs_read)",
+      "matcher": "(listDirectory|ListDirectory|listdirectory|list_directory|fileSearch|FileSearch|filesearch|file_search|findFiles|FindFiles|find_files|glob|Glob|globFiles|glob_files|directorySearch|DirectorySearch|directory_search|readFile|read_file|readFiles|read_files|readMultipleFiles|read_multiple_files|fsRead|fs_read|executeBash|execute_bash|executeCommand|execute_command|runCommand|run_command|runShell|run_shell|shell|Shell|bash|Bash)",
       "action": {
         "type": "command",
         "command": "__FASTPATH_GUARDRAIL__"

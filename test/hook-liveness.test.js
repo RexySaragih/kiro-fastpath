@@ -38,7 +38,16 @@ test('guardrail matcher still matches the tool names it must catch', () => {
   );
   const guardrail = shipped.hooks.find((h) => h.trigger === 'PreToolUse');
   const re = new RegExp(guardrail.matcher);
-  for (const tool of ['listDirectory', 'list_directory', 'file_search', 'glob', 'findFiles']) {
+  for (const tool of [
+    'listDirectory',
+    'list_directory',
+    'file_search',
+    'glob',
+    'findFiles',
+    'execute_bash',
+    'executeBash',
+    'shell',
+  ]) {
     assert.equal(re.test(tool), true, `matcher missed ${tool}`);
   }
 });
