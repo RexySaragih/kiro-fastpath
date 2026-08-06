@@ -47,7 +47,7 @@ const DUPLICATE_READ_WARN_AT = 2;
 
 const BLOCK_MESSAGE =
   'FastPath guardrail: unscoped repo walking is disabled to save tokens. ' +
-  'Locate code with FastPath MCP tools instead: find / impact / memory. ' +
+  'Locate code with FastPath MCP tools instead: find / impact / window / memory. ' +
   'Scoped walks (explicit path, depth <= 1) are allowed.';
 
 const SHELL_DISCOVERY_MESSAGE =

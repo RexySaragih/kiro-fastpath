@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { MEMORY_KINDS, type MemoryEntry } from '@fastpath/core';
 import type { FastpathClient } from '../clients/fastpath-client.js';
+import { recordPlainMetric } from '../record-metric.js';
 import { toolErr, toolOk } from '../utils/format.js';
 
 const MEMORY_KIND_ENUM = ['decision', 'fact', 'preference', 'session'] as const;
@@ -153,9 +154,13 @@ export async function handleMemorySave(client: FastpathClient, args: unknown) {
   if (!parsed.success) return toolErr(parsed.error.message);
   try {
     const saved = await client.memorySave(parsed.data);
-    return toolOk(`Saved memory #${saved.id} (${saved.kind}): ${saved.text}`);
+    const result = toolOk(`Saved memory #${saved.id} (${saved.kind}): ${saved.text}`);
+    recordPlainMetric('memory', result);
+    return result;
   } catch (err) {
-    return toolErr(client.wrapError(err));
+    const result = toolErr(client.wrapError(err));
+    recordPlainMetric('memory', result);
+    return result;
   }
 }
 
@@ -164,9 +169,15 @@ export async function handleMemoryRecall(client: FastpathClient, args: unknown) 
   if (!parsed.success) return toolErr(parsed.error.message);
   try {
     const memories = await client.memoryRecall(parsed.data.query, parsed.data.top_k);
-    return toolOk(formatMemories(memories, `## memory_recall: ${parsed.data.query}`));
+    const result = toolOk(
+      formatMemories(memories, `## memory_recall: ${parsed.data.query}`),
+    );
+    recordPlainMetric('memory', result, memories.length);
+    return result;
   } catch (err) {
-    return toolErr(client.wrapError(err));
+    const result = toolErr(client.wrapError(err));
+    recordPlainMetric('memory', result);
+    return result;
   }
 }
 

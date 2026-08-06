@@ -9,7 +9,9 @@ export {
   SYMBOL_EXTENSIONS,
   TEXT_ONLY_EXTENSIONS,
   IndexLimits,
+  InjectLimits,
   McpTimeouts,
+  WindowLimits,
   type CallEdge,
   type ImportEdge,
   type IndexStats,
@@ -18,6 +20,17 @@ export {
   type SearchOptions,
   type SymbolKind,
 } from './types.js';
+
+export {
+  enrichHitsWithWindows,
+  readWindow,
+  resolveWorkspacePath,
+  computeWindowRange,
+  isQualityHit,
+  countQualityHits,
+  type CodeWindow,
+  type ReadWindowOptions,
+} from './window.js';
 
 export { IgnoreMatcher } from './ignore.js';
 export { tokenizeIdentifier, clampTopK, snippetAround } from './tokenize.js';
@@ -107,3 +120,30 @@ export {
   sqliteVecAvailable,
   lshCandidateIds,
 } from './search/ann.js';
+export {
+  CHARS_PER_TOKEN,
+  FILE_COUNTERFACTUAL_CAP_TOKENS,
+  WALK_ENTRY_CHARS,
+  WALK_TOKENS_AVOIDED,
+  estimateTokens,
+  userFastpathDir,
+  metricsPath,
+  ledgerStatePath,
+  LOG_MAX_BYTES,
+  appendRotatingLine,
+  appendMetric,
+  readMetrics,
+  resetLedgerState,
+  claimPath,
+  claimDiscovery,
+  discoveryWalkTokens,
+  cappedFileTokens,
+  windowVsFileTokens,
+  creditLocateHits,
+  creditWindowRead,
+  tokenLedger,
+  type InjectMode,
+  type MetricEvent,
+  type LocateCredit,
+  type TokenLedger,
+} from './metrics/index.js';

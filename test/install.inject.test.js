@@ -57,6 +57,9 @@ test('install-kiro writes valid hook JSON and wired agents', () => {
       env: testEnv,
     });
     assert.equal(init.status, 0, init.stderr);
+    const agentsAfterInit = readFileSync(join(dir, 'AGENTS.md'), 'utf8');
+    assert.match(agentsAfterInit, /<!-- fastpath:caveman -->/);
+    assert.match(agentsAfterInit, /OUTPUT MODE = caveman full/);
 
     const index = spawnSync(process.execPath, [cli, 'index', dir], {
       encoding: 'utf8',
@@ -93,6 +96,10 @@ test('install-kiro writes valid hook JSON and wired agents', () => {
 
     assert.equal(existsSync(join(dir, '.kiro/agents/Scout.json')), false);
 
+    const agentsMd = readFileSync(join(dir, 'AGENTS.md'), 'utf8');
+    assert.match(agentsMd, /<!-- fastpath:caveman -->/);
+    assert.match(agentsMd, /OUTPUT MODE = caveman full/);
+
     const architect = readFileSync(join(dir, '.kiro/agents/Architect.md'), 'utf8');
     assert.doesNotMatch(architect, /\ballowedTools\b/);
     assert.doesNotMatch(architect, /\bincludeMcpJson\b/);
@@ -120,6 +127,7 @@ test('install-kiro writes valid hook JSON and wired agents', () => {
     assert.match(doctor.stdout, /Agent pack IDE-compatible/);
     assert.match(doctor.stdout, /Search smoke OK/);
     assert.match(doctor.stdout, /Architect agent installed/);
+    assert.match(doctor.stdout, /AGENTS\.md includes caveman full/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -139,6 +147,7 @@ test('prompt-inject returns FastPath hits for indexed workspace', async () => {
     });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /FastPath retrieved context/);
+    assert.match(result.stdout, /OUTPUT MODE = caveman full/);
     assert.match(result.stdout, /AuthService|validateJwt|login/i);
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -5,9 +5,11 @@ import {
   grepFast,
   impactForSymbol,
   lookupSymbol,
+  readWindow,
   recallMemories,
   saveMemory,
   searchIndex,
+  type CodeWindow,
   type MemoryEntry,
   type SaveMemoryInput,
   type SearchHit,
@@ -47,6 +49,10 @@ export class FastpathClient {
         topK: topK ?? DEFAULT_TOP_K,
       }),
     );
+  }
+
+  window(path: string, startLine: number, endLine: number): CodeWindow {
+    return readWindow(this.workspace, path, startLine, endLine);
   }
 
   async memorySave(input: SaveMemoryInput): Promise<MemoryEntry> {

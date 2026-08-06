@@ -2,6 +2,7 @@ import { openDatabase } from '../db/schema.js';
 import { resolveDbPath } from '../index/indexer.js';
 import { clampTopK } from '../tokenize.js';
 import { DEFAULT_TOP_K, HARD_MAX_TOP_K, type SearchHit } from '../types.js';
+import { enrichHitsWithWindows } from '../window.js';
 
 export interface ImpactResult {
   symbol: string;
@@ -129,12 +130,22 @@ export function impactForSymbol(
       references = [];
     }
 
+    const defHits = enrichHitsWithWindows(workspace, definitions);
+    const callerHits = enrichHitsWithWindows(
+      workspace,
+      dedupeHits(callers).slice(0, topK),
+    );
+    const refHits = enrichHitsWithWindows(
+      workspace,
+      dedupeHits(references).slice(0, topK),
+    );
+
     return {
       symbol: name,
-      definitions,
+      definitions: defHits,
       importers: dedupeHits(importers).slice(0, topK),
-      callers: dedupeHits(callers).slice(0, topK),
-      references: dedupeHits(references).slice(0, topK),
+      callers: callerHits,
+      references: refHits,
     };
   } finally {
     db.close();
@@ -153,18 +164,31 @@ function dedupeHits(hits: SearchHit[]): SearchHit[] {
   return out;
 }
 
+function hitLoc(h: SearchHit): string {
+  if (h.startLine != null && h.endLine != null) {
+    return h.startLine === h.endLine
+      ? `${h.path}:${h.startLine}`
+      : `${h.path}:${h.startLine}-${h.endLine}`;
+  }
+  return h.line ? `${h.path}:${h.line}` : h.path;
+}
+
 export function formatImpact(result: ImpactResult): string {
   const lines = [`## impact: ${result.symbol}`, '', '### definitions'];
   if (!result.definitions.length) lines.push('(none)');
   for (const h of result.definitions) {
-    lines.push(`- **${h.symbol}** (${h.kind}) — \`${h.path}:${h.line}\``);
+    lines.push(`- **${h.symbol}** (${h.kind}) — \`${hitLoc(h)}\``);
     if (h.snippet) lines.push('```', h.snippet, '```');
   }
   lines.push('', '### callers');
   if (!result.callers.length) lines.push('(none)');
   for (const h of result.callers) {
-    const loc = h.line ? `${h.path}:${h.line}` : h.path;
-    lines.push(`- \`${loc}\` — ${h.snippet}`);
+    lines.push(`- \`${hitLoc(h)}\` — ${h.symbol ?? h.path}`);
+    if (h.snippet && h.startLine != null) {
+      lines.push('```', h.snippet, '```');
+    } else if (h.snippet) {
+      lines.push(`  ${h.snippet}`);
+    }
   }
   lines.push('', '### importers');
   if (!result.importers.length) lines.push('(none)');
@@ -174,7 +198,7 @@ export function formatImpact(result: ImpactResult): string {
   lines.push('', '### references');
   if (!result.references.length) lines.push('(none)');
   for (const h of result.references) {
-    lines.push(`- \`${h.path}\``);
+    lines.push(`- \`${hitLoc(h)}\``);
     if (h.snippet) lines.push('```', h.snippet, '```');
   }
   return lines.join('\n');

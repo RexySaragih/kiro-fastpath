@@ -1,20 +1,20 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import { getMeta, openDatabase } from '../db/schema.js';
 import { embedQuery } from '../embed/backend.js';
 import { blobToVec, cosine } from '../embed/hash.js';
 import { resolveDbPath } from '../index/indexer.js';
-import { clampTopK, snippetAround, tokenizeIdentifier } from '../tokenize.js';
+import { clampTopK, tokenizeIdentifier } from '../tokenize.js';
 import {
   DEFAULT_MAX_CHUNKS,
   DEFAULT_TOP_K,
   HARD_MAX_CHUNKS,
   HARD_MAX_TOP_K,
   IndexLimits,
+  InjectLimits,
   type SearchHit,
   type SearchOptions,
 } from '../types.js';
+import { enrichHitsWithWindows } from '../window.js';
 // IndexLimits used for RERANK_CANDIDATES + VECTOR_SCAN_LIMIT
 import { lshCandidateIds, querySqliteVec, sqliteVecAvailable } from './ann.js';
 import { grepFast } from './grep.js';
@@ -311,19 +311,24 @@ export async function searchIndex(
 ): Promise<SearchHit[]> {
   const topK = clampTopK(options.topK, DEFAULT_TOP_K, HARD_MAX_TOP_K);
   const db = openDatabase(resolveDbPath(workspace), { create: false });
+  let hits: SearchHit[];
   try {
     const kind = classifyQuery(query);
     const lexical = lexicalSearch(db, query, topK, options.pathPrefix);
-    if (kind === 'identifier') return lexical.slice(0, topK);
-    const candidates = options.rerankCandidates ?? IndexLimits.RERANK_CANDIDATES;
-    const vectors = await vectorSearch(db, query, topK, options.pathPrefix);
-    const fused = vectors.length
-      ? fuseRrf([lexical, vectors], candidates)
-      : lexical.slice(0, candidates);
-    return rerankHits(query, fused, topK);
+    if (kind === 'identifier') {
+      hits = lexical.slice(0, topK);
+    } else {
+      const candidates = options.rerankCandidates ?? IndexLimits.RERANK_CANDIDATES;
+      const vectors = await vectorSearch(db, query, topK, options.pathPrefix);
+      const fused = vectors.length
+        ? fuseRrf([lexical, vectors], candidates)
+        : lexical.slice(0, candidates);
+      hits = await rerankHits(query, fused, topK);
+    }
   } finally {
     db.close();
   }
+  return enrichHitsWithWindows(workspace, hits);
 }
 
 export function lookupSymbol(
@@ -364,7 +369,7 @@ export function lookupSymbol(
           signature: string;
         }>);
 
-    return rows.map((row, i) => ({
+    const hits = rows.map((row, i) => ({
       path: row.path,
       symbol: row.name,
       kind: row.kind,
@@ -372,12 +377,13 @@ export function lookupSymbol(
       score: topK - i,
       snippet: row.signature,
     }));
+    return enrichHitsWithWindows(workspace, hits);
   });
 }
 
 /** ~4 chars per token; context packs are budgeted in tokens, not hit counts. */
 const CHARS_PER_TOKEN = 4;
-export const CONTEXT_TOKEN_BUDGET = 900;
+export const CONTEXT_TOKEN_BUDGET = InjectLimits.TOKEN_BUDGET;
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / CHARS_PER_TOKEN);
@@ -464,50 +470,14 @@ export async function contextForTask(
     topK: limit,
     rerankCandidates: IndexLimits.RERANK_CANDIDATES_INJECT,
   });
-  if (!hits.length) hits = zeroHitLadder(workspace, task, limit);
-
-  const chunkSpans = withWorkspaceDb(workspace, (db) => {
-    const lookup = db.prepare(
-      `SELECT start_line, end_line FROM chunks WHERE path = ? AND start_line = ?`,
-    );
-    const spans = new Map<string, { start: number; end: number }>();
-    for (const hit of hits) {
-      if (!hit.line) continue;
-      const row = lookup.get(hit.path, hit.line) as
-        | { start_line: number; end_line: number }
-        | undefined;
-      if (row) spans.set(`${hit.path}:${hit.line}`, { start: row.start_line, end: row.end_line });
-    }
-    return spans;
-  });
-
-  const enriched: SearchHit[] = [];
-  for (const hit of hits) {
-    const abs = join(workspace, hit.path);
-    if (hit.line && existsSync(abs)) {
-      try {
-        const content = readFileSync(abs, 'utf8');
-        const span = chunkSpans.get(`${hit.path}:${hit.line}`);
-        // Anchor to the persisted AST span when we have one; ±3 lines otherwise.
-        const snippet = span
-          ? content
-              .split('\n')
-              .slice(span.start - 1, Math.min(span.end, span.start + 24))
-              .join('\n')
-          : snippetAround(content, hit.line, 3);
-        enriched.push({ ...hit, snippet });
-        continue;
-      } catch {
-        /* fall through */
-      }
-    }
-    enriched.push(hit);
+  if (!hits.length) {
+    hits = enrichHitsWithWindows(workspace, zeroHitLadder(workspace, task, limit));
   }
 
   // Budget by tokens, not hit count: merge per file, then fill until spent.
   const budgeted: SearchHit[] = [];
   let spent = 0;
-  for (const hit of mergePerFile(enriched)) {
+  for (const hit of mergePerFile(hits)) {
     const cost = estimateTokens(`${hit.path}${hit.symbol ?? ''}${hit.snippet ?? ''}`);
     if (budgeted.length && spent + cost > CONTEXT_TOKEN_BUDGET) break;
     budgeted.push(hit);
@@ -586,7 +556,7 @@ export function recentSymbols(workspace: string, limit = 6): SearchHit[] {
       line: number;
       signature: string;
     }>;
-    return rows.map((row, i) => ({
+    const hits = rows.map((row, i) => ({
       path: row.path,
       symbol: row.name,
       kind: row.kind,
@@ -594,5 +564,6 @@ export function recentSymbols(workspace: string, limit = 6): SearchHit[] {
       score: limit - i,
       snippet: row.signature,
     }));
+    return enrichHitsWithWindows(workspace, hits);
   });
 }

@@ -165,6 +165,9 @@ function checkNativeModules(issues: string[], ok: string[]): void {
   }
 }
 
+const STEERING_RESOURCES_GLOB = '.kiro/steering/**/*.md';
+const CAVEMAN_SKILL_RESOURCE = 'skill://.kiro/skills/caveman/SKILL.md';
+
 function checkAgentFile(
   label: string,
   path: string,
@@ -187,6 +190,40 @@ function checkAgentFile(
   } else {
     ok.push(`${label} has inline mcpServers`);
   }
+  // Custom agents do not auto-load steering — Kiro requires explicit resources.
+  if (!body.includes(STEERING_RESOURCES_GLOB)) {
+    issues.push(
+      `${label} missing resources glob for steering (\`${STEERING_RESOURCES_GLOB}\`) — re-run \`fastpath install-kiro\``,
+    );
+  } else {
+    ok.push(`${label} loads steering via resources`);
+  }
+  if (!body.includes(CAVEMAN_SKILL_RESOURCE)) {
+    issues.push(
+      `${label} missing caveman skill resource (\`${CAVEMAN_SKILL_RESOURCE}\`) — re-run \`fastpath install-kiro\``,
+    );
+  } else {
+    ok.push(`${label} wires /caveman skill`);
+  }
+  if (!/OUTPUT MODE\s*=\s*caveman full/i.test(body)) {
+    issues.push(
+      `${label} missing OUTPUT MODE = caveman full in system prompt — re-run \`fastpath install-kiro\``,
+    );
+  } else {
+    ok.push(`${label} sets OUTPUT MODE caveman full`);
+  }
+  if (!/\bBad:\s*/.test(body) || !/\bGood:\s*/.test(body)) {
+    issues.push(
+      `${label} missing caveman few-shot Bad:/Good: examples — re-run \`fastpath install-kiro\``,
+    );
+  } else {
+    ok.push(`${label} has caveman few-shot examples`);
+  }
+  if (!body.includes('window')) {
+    issues.push(`${label} missing window tool autoApprove — re-run \`fastpath install-kiro\``);
+  } else {
+    ok.push(`${label} autoApproves window`);
+  }
   if (body.includes('__FASTPATH_')) {
     issues.push(`${label} still has unresolved placeholders — re-run \`fastpath install-kiro\``);
   }
@@ -202,6 +239,46 @@ function checkAgentFile(
     issues.push(
       `${label} has invalid permission capability (${badCaps.join(', ')}) — use fs_write/fs_read/shell; re-run \`fastpath install-kiro\``,
     );
+  }
+}
+
+function checkSteeringCaveman(workspace: string, issues: string[], ok: string[]): void {
+  const cavemanPath = join(workspace, '.kiro/steering/caveman.md');
+  if (!existsSync(cavemanPath)) {
+    issues.push('Steering caveman.md missing — run `fastpath install-kiro` / rewire');
+    return;
+  }
+  const body = readFileSync(cavemanPath, 'utf8');
+  if (!/#\s*Caveman full/i.test(body) || !/ACTIVE EVERY RESPONSE/i.test(body)) {
+    issues.push(
+      'Steering caveman.md missing Caveman full / ACTIVE EVERY RESPONSE — re-run `fastpath install-kiro` / rewire',
+    );
+  } else {
+    ok.push('Steering includes Caveman full (caveman.md)');
+  }
+  const skillPath = join(workspace, '.kiro/skills/caveman/SKILL.md');
+  if (!existsSync(skillPath)) {
+    issues.push('Caveman skill missing (.kiro/skills/caveman/SKILL.md) — re-run `fastpath install-kiro`');
+  } else {
+    ok.push('Caveman skill installed (/caveman)');
+  }
+  const agentsMd = join(workspace, 'AGENTS.md');
+  if (!existsSync(agentsMd)) {
+    issues.push(
+      'AGENTS.md missing (Default-agent caveman) — run `fastpath init` or `fastpath install-kiro`',
+    );
+  } else {
+    const agentsBody = readFileSync(agentsMd, 'utf8');
+    if (
+      !agentsBody.includes('<!-- fastpath:caveman -->') ||
+      !/OUTPUT MODE\s*=\s*caveman full/i.test(agentsBody)
+    ) {
+      issues.push(
+        'AGENTS.md missing FastPath caveman block — re-run `fastpath init` / `install-kiro`',
+      );
+    } else {
+      ok.push('AGENTS.md includes caveman full (Default agent)');
+    }
   }
 }
 
@@ -368,8 +445,9 @@ export async function runDoctor(workspace: string): Promise<DoctorResult> {
     }
     if (total > 4000) issues.push(`Steering ~${total} tokens (prefer <4000 always-on)`);
     else ok.push(`Steering ~${total} tokens`);
+    checkSteeringCaveman(workspace, issues, ok);
   } else {
-    ok.push('No .kiro/steering (ok)');
+    issues.push('No .kiro/steering — run `fastpath install-kiro` for caveman + retrieval steering');
   }
 
   if (existsSync(join(workspace, '.kiro/specs'))) {

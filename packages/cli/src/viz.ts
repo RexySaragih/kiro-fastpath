@@ -8,7 +8,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { collectVizSnapshot, type CountRow, type VizSnapshot } from '@fastpath/core';
-import { readMetrics } from './metrics.js';
+import { readMetrics, tokenLedger } from './metrics.js';
 
 export interface VizMetricsSummary {
   events: number;
@@ -18,6 +18,24 @@ export interface VizMetricsSummary {
   timeouts: number;
   indexes: number;
   doctors: number;
+  /** Measured: ceil(chars/4) of inject STDOUT. Null when no inject samples. */
+  injectedTokens: number | null;
+  /** Measured: MCP tool response tokens. Null when no mcp samples. */
+  mcpResponseTokens: number | null;
+  /** Sum of estimated avoid buckets. Null when no avoid-side samples. */
+  tokensAvoided: number | null;
+  avoidedBlockedWalk: number | null;
+  avoidedWindowVsFile: number | null;
+  avoidedDiscovery: number | null;
+  spentTokens: number | null;
+  /** avoided − spent (mixed honesty). Null when no spend/avoid samples. */
+  netTokens: number | null;
+  mcpCalls: number;
+  mcpOk: number;
+  walksSeen: number;
+  walksBlocked: number;
+  /** Short operational insight for the token panel. */
+  insight: string;
 }
 
 export interface VizPageData extends VizSnapshot {
@@ -40,6 +58,32 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+function ledgerInsight(args: {
+  injects: number;
+  mcpCalls: number;
+  mcpOk: number;
+  tokensAvoided: number;
+  spentTokens: number;
+  hasSamples: boolean;
+}): string {
+  if (!args.hasSamples) {
+    return 'No token samples yet — run a Kiro session with inject/MCP.';
+  }
+  if (args.mcpOk > 0 && args.tokensAvoided > 0) {
+    return 'MCP path credited — Avoided ≈ includes window/discover estimates.';
+  }
+  if (args.mcpCalls === 0 && args.tokensAvoided === 0 && args.injects > 0) {
+    return 'No MCP/walk credits yet — host walks or MCP calls drive Avoided ≈.';
+  }
+  if (args.tokensAvoided > 0 && args.tokensAvoided < args.spentTokens) {
+    return 'Net ≈ negative — spent exceeds estimated avoid; check components.';
+  }
+  if (args.tokensAvoided > args.spentTokens) {
+    return 'Net ≈ positive — estimated avoid exceeds measured spend.';
+  }
+  return 'Ledger mixes measured spend with estimated avoid buckets.';
+}
+
 function collectMetricsSummary(): VizMetricsSummary {
   const events = readMetrics(500);
   const injects = events.filter(
@@ -56,6 +100,15 @@ function collectMetricsSummary(): VizMetricsSummary {
     p50DeltaMs = deltas[Math.floor(deltas.length / 2)] ?? 0;
     timeouts = injects.filter((i) => i.timedOutDelta || i.timedOutRetrieve).length;
   }
+  const ledger = tokenLedger(events);
+  const hasInjectSamples = ledger.injects > 0;
+  const hasMcpSamples = ledger.mcpCalls > 0;
+  const hasAvoidSamples =
+    ledger.walksSeen > 0 ||
+    ledger.avoidedWindowVsFile > 0 ||
+    ledger.avoidedDiscovery > 0 ||
+    hasMcpSamples;
+  const hasSamples = hasInjectSamples || hasMcpSamples || ledger.walksSeen > 0;
   return {
     events: events.length,
     injects: injects.length,
@@ -64,7 +117,33 @@ function collectMetricsSummary(): VizMetricsSummary {
     timeouts,
     indexes,
     doctors,
+    injectedTokens: hasInjectSamples ? ledger.injectedTokens : null,
+    mcpResponseTokens: hasMcpSamples ? ledger.mcpResponseTokens : null,
+    tokensAvoided: hasAvoidSamples ? ledger.tokensAvoided : null,
+    avoidedBlockedWalk: hasAvoidSamples ? ledger.avoidedBlockedWalk : null,
+    avoidedWindowVsFile: hasAvoidSamples ? ledger.avoidedWindowVsFile : null,
+    avoidedDiscovery: hasAvoidSamples ? ledger.avoidedDiscovery : null,
+    spentTokens: hasSamples ? ledger.spentTokens : null,
+    netTokens: hasSamples ? ledger.net : null,
+    mcpCalls: ledger.mcpCalls,
+    mcpOk: ledger.mcpOk,
+    walksSeen: ledger.walksSeen,
+    walksBlocked: ledger.walksBlocked,
+    insight: ledgerInsight({
+      injects: ledger.injects,
+      mcpCalls: ledger.mcpCalls,
+      mcpOk: ledger.mcpOk,
+      tokensAvoided: ledger.tokensAvoided,
+      spentTokens: ledger.spentTokens,
+      hasSamples,
+    }),
   };
+}
+
+/** Format ledger numbers for display — n/a when no samples. */
+function formatLedgerTok(value: number | null): string {
+  if (value == null) return 'n/a';
+  return String(value);
 }
 
 /** Amber → zinc scale (design DNA). No purple. */
@@ -181,7 +260,15 @@ function injectMetricsBlock(m: VizMetricsSummary, hit: string): string {
         <div class="kpi"><span class="k">p50 Δ ms</span><span class="v">${m.p50DeltaMs ?? 'n/a'}</span></div>
         <div class="kpi"><span class="k">Timeouts</span><span class="v">${m.timeouts}</span></div>
         <div class="kpi"><span class="k">Index / doctor</span><span class="v">${m.indexes} / ${m.doctors}</span></div>
+        <div class="kpi"><span class="k">MCP ok</span><span class="v">${m.mcpOk}/${m.mcpCalls}</span></div>
+        <div class="kpi"><span class="k">Walks blocked</span><span class="v">${m.walksBlocked}/${m.walksSeen}</span></div>
+        <div class="kpi"><span class="k">Spent</span><span class="v">${formatLedgerTok(m.spentTokens)}</span></div>
+        <div class="kpi"><span class="k">Walk block ≈</span><span class="v">${formatLedgerTok(m.avoidedBlockedWalk)}</span></div>
+        <div class="kpi"><span class="k">Window vs file ≈</span><span class="v">${formatLedgerTok(m.avoidedWindowVsFile)}</span></div>
+        <div class="kpi"><span class="k">Discover ≈</span><span class="v">${formatLedgerTok(m.avoidedDiscovery)}</span></div>
       </div>
+      <p class="muted ledger-legend">Injected/MCP out = measured · Avoided buckets = estimate (deduped paths, discovery once/session)</p>
+      <p class="ledger-insight">${escapeHtml(m.insight)}</p>
     </div>
   </div>`;
 }
@@ -356,10 +443,29 @@ export function renderVizHtml(data: VizPageData): string {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 12px;
+    margin-bottom: 12px;
+  }
+  .grid-stats-ledger {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
     margin-bottom: 28px;
+  }
+  .ledger-legend {
+    margin: 10px 0 0;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+  .ledger-insight {
+    margin: 8px 0 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text);
+    font-family: var(--mono);
   }
   @media (max-width: 900px) {
     .grid-stats { grid-template-columns: repeat(2, 1fr); }
+    .grid-stats-ledger { grid-template-columns: repeat(2, 1fr); }
   }
   .stat {
     background: var(--bg-2);
@@ -791,6 +897,12 @@ export function renderVizHtml(data: VizPageData): string {
     <div class="stat"><div class="k">N-grams</div><div class="v">${s.ngrams}</div></div>
     <div class="stat"><div class="k">Memories</div><div class="v">${s.memories}</div></div>
     <div class="stat"><div class="k">Inject hit</div><div class="v">${hit}</div></div>
+  </div>
+  <div class="grid-stats-ledger">
+    <div class="stat"><div class="k">Injected</div><div class="v">${formatLedgerTok(data.metrics.injectedTokens)}</div></div>
+    <div class="stat"><div class="k">MCP out</div><div class="v">${formatLedgerTok(data.metrics.mcpResponseTokens)}</div></div>
+    <div class="stat"><div class="k">Avoided ≈</div><div class="v">${formatLedgerTok(data.metrics.tokensAvoided)}</div></div>
+    <div class="stat"><div class="k">Net ≈</div><div class="v">${formatLedgerTok(data.metrics.netTokens)}</div></div>
   </div>
 
   <div class="layout">

@@ -12,33 +12,44 @@ function estimateTokens(text) {
   return Math.ceil(text.length / 4);
 }
 
-test('advertised MCP surface is 3 tools under the fixed-overhead budget', async () => {
+test('advertised MCP surface is 4 tools under the fixed-overhead budget', async () => {
   const { findTool, impactTool } = await import(
     join(root, 'packages/mcp-server/dist/tools/search.js')
   );
   const { memoryTool } = await import(join(root, 'packages/mcp-server/dist/tools/memory.js'));
-  const tools = [findTool, impactTool, memoryTool];
-  assert.equal(tools.length, 3);
+  const { windowTool } = await import(join(root, 'packages/mcp-server/dist/tools/window.js'));
+  const tools = [findTool, impactTool, windowTool, memoryTool];
+  assert.equal(tools.length, 4);
 
   const schemaTokens = estimateTokens(JSON.stringify(tools));
   const steeringTokens = estimateTokens(
-    readFileSync(join(root, 'packages/agent-pack/steering/fastpath.md'), 'utf8'),
+    readFileSync(join(root, 'packages/agent-pack/steering/fastpath.md'), 'utf8') +
+      readFileSync(join(root, 'packages/agent-pack/steering/caveman.md'), 'utf8'),
   );
+  // Window tool + split always-on steering; keep a hard ceiling for context tax.
   assert.ok(
-    schemaTokens + steeringTokens < 900,
+    schemaTokens + steeringTokens < 1800,
     `fixed per-turn overhead too high: schemas=${schemaTokens} steering=${steeringTokens}`,
   );
 });
 
 test('steering does not duplicate the tool-pick table', () => {
-  const steering = readFileSync(
+  const retrieval = readFileSync(
     join(root, 'packages/agent-pack/steering/fastpath.md'),
     'utf8',
   );
-  assert.doesNotMatch(steering, /\| Need \| Tool \|/);
-  assert.doesNotMatch(steering, /context_for_task|grep_fast|memory_recall|memory_save/);
-  assert.match(steering, /grep -r/);
-  assert.match(steering, /Architect/);
+  const caveman = readFileSync(
+    join(root, 'packages/agent-pack/steering/caveman.md'),
+    'utf8',
+  );
+  assert.doesNotMatch(retrieval, /\| Need \| Tool \|/);
+  assert.doesNotMatch(retrieval, /context_for_task|grep_fast|memory_recall|memory_save/);
+  assert.match(retrieval, /grep -r/);
+  assert.match(retrieval, /Architect/);
+  assert.match(retrieval, /caveman\.md/);
+  assert.match(caveman, /Caveman full/);
+  assert.match(caveman, /ACTIVE EVERY RESPONSE/);
+  assert.match(caveman, /OUTPUT MODE = caveman full/);
 });
 
 test('find dispatches every mode and memory round-trips through one tool', async () => {

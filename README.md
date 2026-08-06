@@ -94,7 +94,7 @@ You can combine them in theory; for one tool, FastPath’s bet is **forced retri
 | Graph         | Import edges + `call_edges`                               |
 | Symbols       | web-tree-sitter (legacy TS/regex fallback)                |
 | Freshness     | Prompt-inject delta, `watch`, `index --git`               |
-| Delivery      | MCP stdio — 3 tools (`find` / `impact` / `memory`)        |
+| Delivery      | MCP stdio — 4 tools (`find` / `impact` / `window` / `memory`) |
 | Harness       | Scout / Architect + steering + doctor                     |
 
 ## Make Kiro actually use the index
@@ -173,7 +173,7 @@ bash scripts/install-target.sh /path/to/your/repo
 
 Kiro binds effort per session/model, not per agent — set `/effort` when you switch agents.
 
-**Speak short by default** (always-on steering): ~60–75% less prose — plain words, what matters only. Ask “explain” / “elaborate” when you want the long version.
+**Caveman full by default** (agent system prompt first + `.kiro/steering/caveman.md` + Scout/Architect `resources`; slash `/caveman` to refresh): ~60–75% less prose — fragments OK, drop articles when clear. Soften with `caveman lite` or ask “elaborate” for the long version.
 
 Do not add CLI-only fields (`allowedTools`, `includeMcpJson`) to agent markdown — Kiro IDE will hide the agent.
 
@@ -231,12 +231,13 @@ Optional ANN: `npm install sqlite-vec -w @fastpath/core` then re-index.
 
 ## MCP tools (read-only)
 
-Advertised surface is three tools (legacy names remain callable):
+Advertised surface is four tools (legacy names remain callable):
 
 | Tool     | Use when                                                                 |
 | -------- | ------------------------------------------------------------------------ |
-| `find`   | Locate code — `mode`: `search` / `symbol` / `grep` / `context`           |
+| `find`   | Locate code — `mode`: `search` / `symbol` / `grep` / `context` (returns focused windows) |
 | `impact` | Definitions, callers, importers, references                              |
+| `window` | Read a line-range from a known path (prefer over whole-file host reads)  |
 | `memory` | Save / recall / list / forget session notes                              |
 
 ## Verify

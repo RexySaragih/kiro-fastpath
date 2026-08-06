@@ -24,12 +24,13 @@ test('README does not claim Kiro-CLI agent generation', () => {
   assert.match(readme, /Kiro IDE/);
 });
 
-test('README advertises the collapsed 3-tool MCP surface', () => {
+test('README advertises the 4-tool MCP surface', () => {
   const readme = readFileSync(join(root, 'README.md'), 'utf8');
-  assert.match(readme, /3 tools/);
+  assert.match(readme, /4 tools/);
   assert.doesNotMatch(readme, /7 tools/);
   assert.match(readme, /`find`/);
   assert.match(readme, /`impact`/);
+  assert.match(readme, /`window`/);
   assert.match(readme, /`memory`/);
 });
 

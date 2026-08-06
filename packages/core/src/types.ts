@@ -41,7 +41,31 @@ export interface SearchHit {
   line: number | null;
   score: number;
   snippet: string;
+  /** Inclusive start of the focused code window (when enriched). */
+  startLine?: number;
+  /** Inclusive end of the focused code window (when enriched). */
+  endLine?: number;
 }
+
+/** Caps for MCP / inject code windows — no magic numbers in hot paths. */
+export const WindowLimits = {
+  MAX_LINES: 80,
+  MAX_CHARS: 3500,
+  DEFAULT_PAD: 2,
+  MAX_FILE_BYTES: 1_500_000,
+  /** Snippet shorter than this does not count as a quality hit. */
+  MIN_QUALITY_CHARS: 24,
+} as const;
+
+/** Prompt-inject emit caps (fewer, fuller windows). */
+export const InjectLimits = {
+  MAX_HITS: 4,
+  SNIPPET_MAX_CHARS: 1200,
+  MEMORY_TOP_K: 3,
+  MEMORY_SNIPPET_MAX_CHARS: 240,
+  CONTEXT_CHUNKS: 4,
+  TOKEN_BUDGET: 1400,
+} as const;
 
 export interface IndexStats {
   workspace: string;
@@ -71,17 +95,23 @@ export const IndexLimits = {
   MAX_NGRAMS_PER_FILE: 20_000,
   FILE_FTS_BODY_BYTES: 200_000,
   VECTOR_SCAN_LIMIT: 5_000,
-  COSINE_MIN_SCORE: 0.05,
+  /** MiniLM floor; hash eval still uses lexical-first paths. */
+  COSINE_MIN_SCORE: 0.12,
   RRF_K: 60,
   GREP_FALLBACK_FILE_LIMIT: 500,
   MAX_GREP_LITERALS: 4,
   MAX_COVERING_NGRAMS: 8,
   DELTA_MAX_FILES: 20,
   RERANK_CANDIDATES: 20,
-  /** Tighter candidate set on the prompt-inject path — it has a 3s budget. */
-  RERANK_CANDIDATES_INJECT: 10,
+  /**
+   * Inject prefers full rerank when MiniLM is warm; tighten only under
+   * timeout pressure (see prompt-inject).
+   */
+  RERANK_CANDIDATES_INJECT: 20,
   INJECT_DELTA_BUDGET_MS: 2000,
   INJECT_RETRIEVE_BUDGET_MS: 3000,
+  /** Fallback rerank candidate cap when retrieve is near budget. */
+  RERANK_CANDIDATES_INJECT_TIGHT: 10,
   /** Doctor warns when indexed file count exceeds this (tune via FASTPATH_WARN_FILES). */
   WARN_FILE_COUNT: 50_000,
   /** Doctor/metrics: inject hit-rate below this (0–1) after enough samples. */

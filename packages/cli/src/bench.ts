@@ -8,10 +8,14 @@
  * have to open). Estimates are labelled as such — the walk side cannot be
  * measured without a live agent.
  */
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
-import { contextForTask, walkIndexableFiles, type SearchHit } from '@fastpath/core';
-import { CHARS_PER_TOKEN, estimateTokens } from './metrics.js';
+import { readFileSync } from 'node:fs';
+import {
+  cappedFileTokens,
+  contextForTask,
+  discoveryWalkTokens,
+  type SearchHit,
+} from '@fastpath/core';
+import { estimateTokens } from './metrics.js';
 
 export interface BenchTask {
   prompt: string;
@@ -36,36 +40,26 @@ export interface BenchReport {
   rows: BenchRow[];
 }
 
-/** Chars in a listing line: "src/modules/auth/guard.service.ts\n". */
-const WALK_ENTRY_CHARS = 40;
 /** Without retrieval an agent typically opens several candidates per task. */
 const BASELINE_FILE_READS = 3;
 
-function walkEstimate(workspace: string): number {
-  try {
-    return Math.ceil((walkIndexableFiles(workspace).length * WALK_ENTRY_CHARS) / CHARS_PER_TOKEN);
-  } catch {
-    return 0;
-  }
-}
-
 function readEstimate(workspace: string, hits: SearchHit[]): number {
   const paths = [...new Set(hits.map((h) => h.path))].slice(0, BASELINE_FILE_READS);
-  let chars = 0;
-  for (const rel of paths) {
-    const abs = join(workspace, rel);
-    try {
-      if (existsSync(abs)) chars += statSync(abs).size;
-    } catch {
-      /* ignore */
-    }
+  return paths.reduce((sum, rel) => sum + cappedFileTokens(workspace, rel), 0);
+}
+
+function hitLoc(h: SearchHit): string {
+  if (h.startLine != null && h.endLine != null) {
+    return h.startLine === h.endLine
+      ? `${h.path}:${h.startLine}`
+      : `${h.path}:${h.startLine}-${h.endLine}`;
   }
-  return Math.ceil(chars / CHARS_PER_TOKEN);
+  return h.line ? `${h.path}:${h.line}` : h.path;
 }
 
 function renderInjection(hits: SearchHit[]): string {
   return hits
-    .map((h) => `- ${h.symbol ?? h.kind ?? 'hit'} — ${h.path}:${h.line ?? ''}\n${h.snippet ?? ''}`)
+    .map((h) => `- ${h.symbol ?? h.kind ?? 'hit'} — ${hitLoc(h)}\n${h.snippet ?? ''}`)
     .join('\n');
 }
 
@@ -81,7 +75,7 @@ export async function runBench(
   workspace: string,
   tasks: BenchTask[],
 ): Promise<BenchReport> {
-  const walkTokens = walkEstimate(workspace);
+  const walkTokens = discoveryWalkTokens(workspace);
   const rows: BenchRow[] = [];
 
   for (const task of tasks) {
@@ -120,7 +114,7 @@ export function formatBench(report: BenchReport): string {
   const lines = [
     `bench tasks=${report.tasks} avgRetrieveMs=${report.avgRetrieveMs}`,
     `tokens injected=${report.injectedTokens} (measured)`,
-    `tokens baseline≈${report.baselineTokensEstimated} (estimated walk + ${BASELINE_FILE_READS} reads/task)`,
+    `tokens baseline≈${report.baselineTokensEstimated} (estimated walk + ${BASELINE_FILE_READS} whole-file reads/task)`,
     `net≈${report.netTokens}`,
     '',
   ];

@@ -1,117 +1,32 @@
+/**
+ * CLI metrics facade — journal + ledger live in @fastpath/core so MCP can share them.
+ */
+export {
+  CHARS_PER_TOKEN,
+  WALK_TOKENS_AVOIDED,
+  FILE_COUNTERFACTUAL_CAP_TOKENS,
+  estimateTokens,
+  LOG_MAX_BYTES,
+  appendRotatingLine,
+  appendMetric,
+  readMetrics,
+  resetLedgerState,
+  creditLocateHits,
+  creditWindowRead,
+  discoveryWalkTokens,
+  cappedFileTokens,
+  tokenLedger,
+  type InjectMode,
+  type MetricEvent,
+  type TokenLedger,
+} from '@fastpath/core';
+
 import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  statSync,
-} from 'node:fs';
-import { metricsPath, userFastpathDir } from './config.js';
-
-/** ~4 chars per token — good enough for budgets and A/B ledgers. */
-export const CHARS_PER_TOKEN = 4;
-
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / CHARS_PER_TOKEN);
-}
-
-/**
- * Tokens a repo walk would plausibly have cost had retrieval not answered.
- * Conservative: one listDirectory of a mid-size dir plus the reads it triggers.
- */
-export const WALK_TOKENS_AVOIDED = 1200;
-
-export type InjectMode = 'on' | 'off';
-
-export type MetricEvent =
-  | {
-      type: 'inject';
-      at: string;
-      session?: string;
-      mode?: InjectMode;
-      dirty: number;
-      deltaMs: number;
-      retrieveMs: number;
-      hits: number;
-      /** Tokens actually written into agent context by this inject. */
-      injectedTokens?: number;
-      timedOutDelta: boolean;
-      timedOutRetrieve: boolean;
-    }
-  | {
-      type: 'guardrail';
-      at: string;
-      session?: string;
-      tool: string;
-      blocked: boolean;
-      /** Tokens the block plausibly avoided (0 when not blocked). */
-      tokensAvoided: number;
-    }
-  | {
-      type: 'index';
-      at: string;
-      mode: 'full' | 'git' | 'paths';
-      filesIndexed: number;
-      ms: number;
-    }
-  | {
-      type: 'doctor';
-      at: string;
-      ready: boolean;
-      issueCount: number;
-    }
-  | {
-      type: 'file-event';
-      at: string;
-      action: 'index' | 'delete';
-      files: number;
-      ms: number;
-    }
-  | {
-      type: 'session-start';
-      at: string;
-      gitDelta: number;
-      ms: number;
-    };
-
-/** Rotate at 2 MB, keeping one previous generation. */
-export const LOG_MAX_BYTES = 2 * 1024 * 1024;
-
-/**
- * Append to a JSONL log with size-based rotation — these files are written on
- * every turn and every intercepted tool call, so unbounded growth is real.
- */
-export function appendRotatingLine(path: string, line: string, maxBytes = LOG_MAX_BYTES): void {
-  try {
-    mkdirSync(userFastpathDir(), { recursive: true });
-    if (existsSync(path) && statSync(path).size > maxBytes) {
-      renameSync(path, `${path}.1`);
-    }
-    appendFileSync(path, line.endsWith('\n') ? line : `${line}\n`);
-  } catch {
-    /* never break caller */
-  }
-}
-
-export function appendMetric(event: MetricEvent): void {
-  appendRotatingLine(metricsPath(), JSON.stringify(event));
-}
-
-export function readMetrics(limit = 200): MetricEvent[] {
-  const path = metricsPath();
-  if (!existsSync(path)) return [];
-  const lines = readFileSync(path, 'utf8').split('\n').filter(Boolean);
-  const slice = lines.slice(-limit);
-  const out: MetricEvent[] = [];
-  for (const line of slice) {
-    try {
-      out.push(JSON.parse(line) as MetricEvent);
-    } catch {
-      /* skip */
-    }
-  }
-  return out;
-}
+  readMetrics,
+  tokenLedger,
+  type MetricEvent,
+  type TokenLedger,
+} from '@fastpath/core';
 
 function percentile(sorted: number[], p: number): number {
   if (!sorted.length) return 0;
@@ -128,56 +43,21 @@ function histogram(values: number[]): string {
     .join(' ');
 }
 
-export interface TokenLedger {
-  injects: number;
-  injectedTokens: number;
-  tokensAvoided: number;
-  net: number;
-  byMode: Record<InjectMode, { injects: number; injectedTokens: number }>;
-}
-
-/**
- * The product's central claim is "fewer tokens". Ledger it explicitly:
- * tokens we injected versus tokens the guardrail plausibly avoided.
- */
-export function tokenLedger(events: MetricEvent[]): TokenLedger {
+export function summarizeMetrics(events: MetricEvent[]): string {
   const injects = events.filter(
     (e): e is Extract<MetricEvent, { type: 'inject' }> => e.type === 'inject',
   );
-  const guards = events.filter(
-    (e): e is Extract<MetricEvent, { type: 'guardrail' }> => e.type === 'guardrail',
-  );
-  const byMode: TokenLedger['byMode'] = {
-    on: { injects: 0, injectedTokens: 0 },
-    off: { injects: 0, injectedTokens: 0 },
-  };
-  let injectedTokens = 0;
-  for (const i of injects) {
-    const tokens = i.injectedTokens ?? 0;
-    injectedTokens += tokens;
-    const bucket = byMode[i.mode ?? 'on'];
-    bucket.injects += 1;
-    bucket.injectedTokens += tokens;
-  }
-  const tokensAvoided = guards.reduce((sum, g) => sum + g.tokensAvoided, 0);
-  return {
-    injects: injects.length,
-    injectedTokens,
-    tokensAvoided,
-    net: tokensAvoided - injectedTokens,
-    byMode,
-  };
-}
-
-export function summarizeMetrics(events: MetricEvent[]): string {
-  const injects = events.filter((e): e is Extract<MetricEvent, { type: 'inject' }> => e.type === 'inject');
   const indexes = events.filter((e) => e.type === 'index');
   const doctors = events.filter((e) => e.type === 'doctor');
   const guards = events.filter(
     (e): e is Extract<MetricEvent, { type: 'guardrail' }> => e.type === 'guardrail',
   );
+  const mcps = events.filter(
+    (e): e is Extract<MetricEvent, { type: 'mcp' }> => e.type === 'mcp',
+  );
   const lines = [
-    `events=${events.length} inject=${injects.length} index=${indexes.length} doctor=${doctors.length} guardrail=${guards.length}`,
+    `events=${events.length} inject=${injects.length} mcp=${mcps.length}` +
+      ` index=${indexes.length} doctor=${doctors.length} guardrail=${guards.length}`,
   ];
   if (injects.length) {
     const withHits = injects.filter((i) => i.hits > 0).length;
@@ -196,10 +76,18 @@ export function summarizeMetrics(events: MetricEvent[]): string {
     );
   }
   const ledger = tokenLedger(events);
-  if (ledger.injects) {
-    const avg = Math.round(ledger.injectedTokens / Math.max(1, ledger.byMode.on.injects));
+  if (ledger.injects || ledger.mcpCalls || ledger.walksSeen) {
+    const avg = Math.round(
+      ledger.injectedTokens / Math.max(1, ledger.byMode.on.injects),
+    );
     lines.push(
-      `tokens injected=${ledger.injectedTokens} (avg ${avg}/turn on) avoided≈${ledger.tokensAvoided} net≈${ledger.net}`,
+      `tokens spent=${ledger.spentTokens} (inject=${ledger.injectedTokens}` +
+        (ledger.byMode.on.injects ? ` avg ${avg}/turn` : '') +
+        ` mcpOut=${ledger.mcpResponseTokens})` +
+        ` avoided≈${ledger.tokensAvoided}` +
+        ` (walk=${ledger.avoidedBlockedWalk} window=${ledger.avoidedWindowVsFile}` +
+        ` discover=${ledger.avoidedDiscovery})` +
+        ` net≈${ledger.net}`,
     );
     if (ledger.byMode.off.injects) {
       lines.push(
@@ -207,9 +95,16 @@ export function summarizeMetrics(events: MetricEvent[]): string {
       );
     }
   }
-  const blocked = guards.filter((g) => g.blocked).length;
+  if (ledger.mcpCalls) {
+    lines.push(`mcp calls=${ledger.mcpCalls} ok=${ledger.mcpOk}`);
+  }
   if (guards.length) {
-    lines.push(`walks seen=${guards.length} blocked=${blocked}`);
+    lines.push(`walks seen=${ledger.walksSeen} blocked=${ledger.walksBlocked}`);
   }
   return lines.join('\n');
+}
+
+/** Convenience for callers that only need a fresh ledger. */
+export function currentTokenLedger(limit = 500): TokenLedger {
+  return tokenLedger(readMetrics(limit));
 }

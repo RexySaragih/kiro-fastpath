@@ -21,7 +21,8 @@ import {
   writeContext,
   workspaceFromPayload,
 } from './hook-util.js';
-import { appendMetric } from './metrics.js';
+import { CAVEMAN_OUTPUT_NUDGE } from './agents-md.js';
+import { appendMetric, resetLedgerState } from './metrics.js';
 
 /** SessionStart is off the prompt hot path — allow a cold MiniLM load + git delta. */
 const WARM_BUDGET_MS = 15_000;
@@ -82,6 +83,7 @@ async function run(): Promise<void> {
   const gitDelta = await catchUpGitDelta(workspace);
   const stats = getIndexStats(workspace);
 
+  resetLedgerState();
   appendMetric({
     type: 'session-start',
     at: new Date().toISOString(),
@@ -91,13 +93,15 @@ async function run(): Promise<void> {
 
   if (!stats.files) {
     writeContext(
-      `## FastPath session\n\nIndex empty at \`${workspace}\`. Run \`fastpath index\` before coding.\n`,
+      `## FastPath session\n\n${CAVEMAN_OUTPUT_NUDGE}\n\nIndex empty at \`${workspace}\`. Run \`fastpath index\` before coding.\n`,
     );
     return;
   }
 
   const lines = [
     '## FastPath session (auto-injected)',
+    '',
+    CAVEMAN_OUTPUT_NUDGE,
     '',
     `Workspace: \`${workspace}\` · indexed files=${stats.files} symbols=${stats.symbols} · indexedAt=${stats.indexedAt}`,
   ];

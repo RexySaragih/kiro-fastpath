@@ -163,9 +163,15 @@ test('Install: all event hooks + Scout/Architect wired with no placeholders', ()
     assert.match(scout, /claude-sonnet-5/);
     assert.doesNotMatch(scout, /capability:\s*write\b/);
     assert.doesNotMatch(scout, /__FASTPATH_/);
-    // 3-tool surface (find / impact / memory) — collapsed from the legacy 7.
+    // 4-tool surface (find / impact / window / memory) + caveman wiring.
     assert.match(scout, /- find\n/);
+    assert.match(scout, /- window\n/);
     assert.match(scout, /- memory\n/);
+    assert.match(scout, /\.kiro\/steering\/\*\*\/\*\.md/);
+    assert.match(scout, /skill:\/\/\.kiro\/skills\/caveman\/SKILL\.md/);
+    assert.match(scout, /OUTPUT MODE = caveman full/);
+    assert.ok(existsSync(join(dir, '.kiro/steering/caveman.md')));
+    assert.ok(existsSync(join(dir, '.kiro/skills/caveman/SKILL.md')));
     assert.doesNotMatch(scout, /memory_recall/);
     assert.ok(!existsSync(join(dir, '.kiro/agents/Marshal.md')));
 
@@ -199,7 +205,7 @@ test('Guardrail: warn logs but allows; block rejects with exit 2; auto blocks af
     const blocked = run('block');
     assert.equal(blocked.status, 2);
     assert.match(blocked.stderr, /FastPath guardrail/);
-    assert.match(blocked.stderr, /find \/ impact \/ memory/);
+    assert.match(blocked.stderr, /find \/ impact \/ window \/ memory/);
 
     assert.equal(run('off').status, 0);
 
