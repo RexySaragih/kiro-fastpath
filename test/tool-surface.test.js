@@ -24,11 +24,12 @@ test('advertised MCP surface is 4 tools under the fixed-overhead budget', async 
   const schemaTokens = estimateTokens(JSON.stringify(tools));
   const steeringTokens = estimateTokens(
     readFileSync(join(root, 'packages/agent-pack/steering/fastpath.md'), 'utf8') +
-      readFileSync(join(root, 'packages/agent-pack/steering/caveman.md'), 'utf8'),
+      readFileSync(join(root, 'packages/agent-pack/steering/caveman.md'), 'utf8') +
+      readFileSync(join(root, 'packages/agent-pack/steering/ponytail.md'), 'utf8'),
   );
-  // Window tool + split always-on steering; keep a hard ceiling for context tax.
+  // Window tool + always-on steering (retrieval + caveman + ponytail).
   assert.ok(
-    schemaTokens + steeringTokens < 1800,
+    schemaTokens + steeringTokens < 2800,
     `fixed per-turn overhead too high: schemas=${schemaTokens} steering=${steeringTokens}`,
   );
 });
@@ -42,6 +43,10 @@ test('steering does not duplicate the tool-pick table', () => {
     join(root, 'packages/agent-pack/steering/caveman.md'),
     'utf8',
   );
+  const ponytail = readFileSync(
+    join(root, 'packages/agent-pack/steering/ponytail.md'),
+    'utf8',
+  );
   assert.doesNotMatch(retrieval, /\| Need \| Tool \|/);
   assert.doesNotMatch(retrieval, /context_for_task|grep_fast|memory_recall|memory_save/);
   assert.match(retrieval, /grep -r/);
@@ -50,6 +55,9 @@ test('steering does not duplicate the tool-pick table', () => {
   assert.match(caveman, /Caveman full/);
   assert.match(caveman, /ACTIVE EVERY RESPONSE/);
   assert.match(caveman, /OUTPUT MODE = caveman full/);
+  assert.match(ponytail, /lazy senior/i);
+  assert.match(ponytail, /YAGNI/);
+  assert.match(ponytail, /CODE MODE = ponytail full/);
 });
 
 test('find dispatches every mode and memory round-trips through one tool', async () => {

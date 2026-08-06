@@ -133,7 +133,7 @@ coverage/
   console.log(`Initialized FastPath in ${workspace}`);
   console.log(`- ${dir}/`);
   console.log(`- ${ignorePath}`);
-  console.log(`- ${join(workspace, 'AGENTS.md')} (caveman full for Default agent)`);
+  console.log(`- ${join(workspace, 'AGENTS.md')} (caveman + ponytail for Default agent)`);
   console.log('Next: fastpath index');
 }
 
@@ -377,13 +377,19 @@ function cmdInstallKiro(workspace: string): void {
     join(AGENT_PACK, 'steering', 'caveman.md'),
     join(steeringDir, 'caveman.md'),
   );
+  copyFileSync(
+    join(AGENT_PACK, 'steering', 'ponytail.md'),
+    join(steeringDir, 'ponytail.md'),
+  );
   ensureAgentsMdFromPack(workspace, AGENT_PACK);
 
-  const skillSrc = join(AGENT_PACK, 'skills', 'caveman');
-  const skillDest = join(workspace, '.kiro/skills/caveman');
-  if (existsSync(skillSrc)) {
-    mkdirSync(join(workspace, '.kiro/skills'), { recursive: true });
-    cpSync(skillSrc, skillDest, { recursive: true });
+  mkdirSync(join(workspace, '.kiro/skills'), { recursive: true });
+  for (const skill of ['caveman', 'ponytail'] as const) {
+    const skillSrc = join(AGENT_PACK, 'skills', skill);
+    const skillDest = join(workspace, '.kiro/skills', skill);
+    if (existsSync(skillSrc)) {
+      cpSync(skillSrc, skillDest, { recursive: true });
+    }
   }
 
   const hookTemplate = readFileSync(
@@ -463,8 +469,10 @@ function cmdInstallKiro(workspace: string): void {
   console.log('- .kiro/agents/Architect.md (multi-file features, /architect)');
   console.log('- .kiro/steering/fastpath.md (always-on retrieval)');
   console.log('- .kiro/steering/caveman.md (always-on output style)');
-  console.log('- AGENTS.md (caveman full for Default agent — always included)');
+  console.log('- .kiro/steering/ponytail.md (always-on minimal-code ladder)');
+  console.log('- AGENTS.md (caveman + ponytail for Default agent — always included)');
   console.log('- .kiro/skills/caveman (slash /caveman intensifier)');
+  console.log('- .kiro/skills/ponytail (slash /ponytail intensifier)');
   console.log('- .kiro/hooks/fastpath-context.json (inject + session + file-delta + guardrail)');
   console.log('- .kiro/settings/mcp.json (fastpath server)');
   console.log('');
@@ -495,12 +503,14 @@ function cmdUnwire(workspace: string, purgeIndex: boolean): void {
   }
   const hook = join(workspace, '.kiro/hooks/fastpath-context.json');
   if (existsSync(hook)) unlinkSync(hook);
-  for (const name of ['fastpath.md', 'caveman.md'] as const) {
+  for (const name of ['fastpath.md', 'caveman.md', 'ponytail.md'] as const) {
     const steering = join(workspace, '.kiro/steering', name);
     if (existsSync(steering)) unlinkSync(steering);
   }
-  const skillDir = join(workspace, '.kiro/skills/caveman');
-  if (existsSync(skillDir)) rmSync(skillDir, { recursive: true, force: true });
+  for (const skill of ['caveman', 'ponytail'] as const) {
+    const skillDir = join(workspace, '.kiro/skills', skill);
+    if (existsSync(skillDir)) rmSync(skillDir, { recursive: true, force: true });
+  }
   removeManagedAgentsMd(workspace);
 
   const mcpPath = join(workspace, '.kiro/settings/mcp.json');

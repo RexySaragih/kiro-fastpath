@@ -125,8 +125,10 @@ test('install wires resources + caveman; inject emits path ranges', async () => 
     const scout = readFileSync(join(dir, '.kiro/agents/Scout.md'), 'utf8');
     assert.match(scout, /\.kiro\/steering\/\*\*\/\*\.md/);
     assert.match(scout, /skill:\/\/\.kiro\/skills\/caveman\/SKILL\.md/);
+    assert.match(scout, /skill:\/\/\.kiro\/skills\/ponytail\/SKILL\.md/);
     assert.match(scout, /- window\n/);
     assert.match(scout, /OUTPUT MODE = caveman full/);
+    assert.match(scout, /CODE MODE = ponytail full/);
     assert.match(scout, /\bBad:/);
     assert.match(scout, /\bGood:/);
 
@@ -134,6 +136,8 @@ test('install wires resources + caveman; inject emits path ranges', async () => 
     assert.match(caveman, /Caveman full/);
     assert.match(caveman, /ACTIVE EVERY RESPONSE/);
     assert.ok(existsSync(join(dir, '.kiro/skills/caveman/SKILL.md')));
+    assert.ok(existsSync(join(dir, '.kiro/steering/ponytail.md')));
+    assert.ok(existsSync(join(dir, '.kiro/skills/ponytail/SKILL.md')));
 
     const inj = spawnSync(process.execPath, [inject], {
       encoding: 'utf8',

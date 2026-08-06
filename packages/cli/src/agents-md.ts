@@ -1,25 +1,33 @@
 /**
  * Workspace-root AGENTS.md — Kiro Default agent always loads this file.
- * Managed by FastPath (marker <!-- fastpath:caveman -->).
+ * Managed by FastPath (marker <!-- fastpath:agents -->; legacy <!-- fastpath:caveman -->).
  */
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export const AGENTS_MD_MARKER = '<!-- fastpath:caveman -->';
+export const AGENTS_MD_MARKER = '<!-- fastpath:agents -->';
+/** Prior marker — still treated as FastPath-managed for refresh/remove. */
+export const AGENTS_MD_MARKER_LEGACY = '<!-- fastpath:caveman -->';
 
-/** One sticky line for inject / session-start (Default agent nudge). */
+/** Sticky lines for inject / session-start (Default agent nudge). */
 export const CAVEMAN_OUTPUT_NUDGE = 'OUTPUT MODE = caveman full.';
+export const PONYTAIL_CODE_NUDGE = 'CODE MODE = ponytail full.';
 
 export function agentsMdPath(workspace: string): string {
   return join(workspace, 'AGENTS.md');
 }
 
+function managedMarkerIndex(body: string): number {
+  const primary = body.indexOf(AGENTS_MD_MARKER);
+  if (primary >= 0) return primary;
+  return body.indexOf(AGENTS_MD_MARKER_LEGACY);
+}
+
 /**
  * Write or refresh FastPath-managed AGENTS.md.
  * - Missing → write template
- * - Ours (starts with marker / only our block) → overwrite from template
+ * - Ours (marker) → overwrite/refresh FastPath block from template
  * - Foreign (no marker) → append FastPath section once
- * - Foreign + already appended → refresh appended block from template
  */
 export function ensureAgentsMd(workspace: string, templatePath: string): void {
   if (!existsSync(templatePath)) return;
@@ -33,7 +41,7 @@ export function ensureAgentsMd(workspace: string, templatePath: string): void {
   }
 
   const existing = readFileSync(dest, 'utf8');
-  const idx = existing.indexOf(AGENTS_MD_MARKER);
+  const idx = managedMarkerIndex(existing);
   if (idx < 0) {
     writeFileSync(dest, `${existing.trimEnd()}\n\n${body}`);
     return;
@@ -55,7 +63,7 @@ export function removeManagedAgentsMd(workspace: string): void {
   const dest = agentsMdPath(workspace);
   if (!existsSync(dest)) return;
   const existing = readFileSync(dest, 'utf8');
-  const idx = existing.indexOf(AGENTS_MD_MARKER);
+  const idx = managedMarkerIndex(existing);
   if (idx < 0) return;
   const before = existing.slice(0, idx).trimEnd();
   if (!before) {

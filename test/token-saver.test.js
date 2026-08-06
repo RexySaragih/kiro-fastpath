@@ -169,9 +169,13 @@ test('Install: all event hooks + Scout/Architect wired with no placeholders', ()
     assert.match(scout, /- memory\n/);
     assert.match(scout, /\.kiro\/steering\/\*\*\/\*\.md/);
     assert.match(scout, /skill:\/\/\.kiro\/skills\/caveman\/SKILL\.md/);
+    assert.match(scout, /skill:\/\/\.kiro\/skills\/ponytail\/SKILL\.md/);
     assert.match(scout, /OUTPUT MODE = caveman full/);
+    assert.match(scout, /CODE MODE = ponytail full/);
     assert.ok(existsSync(join(dir, '.kiro/steering/caveman.md')));
     assert.ok(existsSync(join(dir, '.kiro/skills/caveman/SKILL.md')));
+    assert.ok(existsSync(join(dir, '.kiro/steering/ponytail.md')));
+    assert.ok(existsSync(join(dir, '.kiro/skills/ponytail/SKILL.md')));
     assert.doesNotMatch(scout, /memory_recall/);
     assert.ok(!existsSync(join(dir, '.kiro/agents/Marshal.md')));
 

@@ -167,6 +167,7 @@ function checkNativeModules(issues: string[], ok: string[]): void {
 
 const STEERING_RESOURCES_GLOB = '.kiro/steering/**/*.md';
 const CAVEMAN_SKILL_RESOURCE = 'skill://.kiro/skills/caveman/SKILL.md';
+const PONYTAIL_SKILL_RESOURCE = 'skill://.kiro/skills/ponytail/SKILL.md';
 
 function checkAgentFile(
   label: string,
@@ -205,12 +206,26 @@ function checkAgentFile(
   } else {
     ok.push(`${label} wires /caveman skill`);
   }
+  if (!body.includes(PONYTAIL_SKILL_RESOURCE)) {
+    issues.push(
+      `${label} missing ponytail skill resource (\`${PONYTAIL_SKILL_RESOURCE}\`) — re-run \`fastpath install-kiro\``,
+    );
+  } else {
+    ok.push(`${label} wires /ponytail skill`);
+  }
   if (!/OUTPUT MODE\s*=\s*caveman full/i.test(body)) {
     issues.push(
       `${label} missing OUTPUT MODE = caveman full in system prompt — re-run \`fastpath install-kiro\``,
     );
   } else {
     ok.push(`${label} sets OUTPUT MODE caveman full`);
+  }
+  if (!/CODE MODE\s*=\s*ponytail full/i.test(body)) {
+    issues.push(
+      `${label} missing CODE MODE = ponytail full in system prompt — re-run \`fastpath install-kiro\``,
+    );
+  } else {
+    ok.push(`${label} sets CODE MODE ponytail full`);
   }
   if (!/\bBad:\s*/.test(body) || !/\bGood:\s*/.test(body)) {
     issues.push(
@@ -246,15 +261,15 @@ function checkSteeringCaveman(workspace: string, issues: string[], ok: string[])
   const cavemanPath = join(workspace, '.kiro/steering/caveman.md');
   if (!existsSync(cavemanPath)) {
     issues.push('Steering caveman.md missing — run `fastpath install-kiro` / rewire');
-    return;
-  }
-  const body = readFileSync(cavemanPath, 'utf8');
-  if (!/#\s*Caveman full/i.test(body) || !/ACTIVE EVERY RESPONSE/i.test(body)) {
-    issues.push(
-      'Steering caveman.md missing Caveman full / ACTIVE EVERY RESPONSE — re-run `fastpath install-kiro` / rewire',
-    );
   } else {
-    ok.push('Steering includes Caveman full (caveman.md)');
+    const body = readFileSync(cavemanPath, 'utf8');
+    if (!/#\s*Caveman full/i.test(body) || !/ACTIVE EVERY RESPONSE/i.test(body)) {
+      issues.push(
+        'Steering caveman.md missing Caveman full / ACTIVE EVERY RESPONSE — re-run `fastpath install-kiro` / rewire',
+      );
+    } else {
+      ok.push('Steering includes Caveman full (caveman.md)');
+    }
   }
   const skillPath = join(workspace, '.kiro/skills/caveman/SKILL.md');
   if (!existsSync(skillPath)) {
@@ -262,22 +277,48 @@ function checkSteeringCaveman(workspace: string, issues: string[], ok: string[])
   } else {
     ok.push('Caveman skill installed (/caveman)');
   }
+
+  const ponytailPath = join(workspace, '.kiro/steering/ponytail.md');
+  if (!existsSync(ponytailPath)) {
+    issues.push('Steering ponytail.md missing — run `fastpath install-kiro` / rewire');
+  } else {
+    const pBody = readFileSync(ponytailPath, 'utf8');
+    if (!/YAGNI/i.test(pBody) || !/lazy senior/i.test(pBody) || !/CODE MODE\s*=\s*ponytail/i.test(pBody)) {
+      issues.push(
+        'Steering ponytail.md missing YAGNI / lazy senior / CODE MODE — re-run `fastpath install-kiro` / rewire',
+      );
+    } else {
+      ok.push('Steering includes Ponytail full (ponytail.md)');
+    }
+  }
+  const ponytailSkill = join(workspace, '.kiro/skills/ponytail/SKILL.md');
+  if (!existsSync(ponytailSkill)) {
+    issues.push('Ponytail skill missing (.kiro/skills/ponytail/SKILL.md) — re-run `fastpath install-kiro`');
+  } else {
+    ok.push('Ponytail skill installed (/ponytail)');
+  }
+
   const agentsMd = join(workspace, 'AGENTS.md');
   if (!existsSync(agentsMd)) {
     issues.push(
-      'AGENTS.md missing (Default-agent caveman) — run `fastpath init` or `fastpath install-kiro`',
+      'AGENTS.md missing (Default-agent caveman + ponytail) — run `fastpath init` or `fastpath install-kiro`',
     );
   } else {
     const agentsBody = readFileSync(agentsMd, 'utf8');
+    const hasMarker =
+      agentsBody.includes('<!-- fastpath:agents -->') ||
+      agentsBody.includes('<!-- fastpath:caveman -->');
     if (
-      !agentsBody.includes('<!-- fastpath:caveman -->') ||
-      !/OUTPUT MODE\s*=\s*caveman full/i.test(agentsBody)
+      !hasMarker ||
+      !/OUTPUT MODE\s*=\s*caveman full/i.test(agentsBody) ||
+      !/CODE MODE\s*=\s*ponytail full/i.test(agentsBody) ||
+      !/YAGNI/i.test(agentsBody)
     ) {
       issues.push(
-        'AGENTS.md missing FastPath caveman block — re-run `fastpath init` / `install-kiro`',
+        'AGENTS.md missing FastPath caveman+ponytail block — re-run `fastpath init` / `install-kiro`',
       );
     } else {
-      ok.push('AGENTS.md includes caveman full (Default agent)');
+      ok.push('AGENTS.md includes caveman + ponytail (Default agent)');
     }
   }
 }

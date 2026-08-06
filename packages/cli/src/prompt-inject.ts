@@ -29,7 +29,9 @@ import {
   writeContext,
   workspaceFromPayload,
 } from './hook-util.js';
-import { CAVEMAN_OUTPUT_NUDGE } from './agents-md.js';
+import { CAVEMAN_OUTPUT_NUDGE, PONYTAIL_CODE_NUDGE } from './agents-md.js';
+
+const STYLE_NUDGES = `${CAVEMAN_OUTPUT_NUDGE}\n${PONYTAIL_CODE_NUDGE}`;
 import {
   appendMetric,
   creditLocateHits,
@@ -140,9 +142,9 @@ function recencyFallbackBody(workspace: string, reason: string): string {
   }
   const body = [...pack, ...memoryLines(memories)];
   if (!body.length) {
-    return `## FastPath\n\n${CAVEMAN_OUTPUT_NUDGE}\n\n(${reason}; index has nothing to offer yet)\n`;
+    return `## FastPath\n\n${STYLE_NUDGES}\n\n(${reason}; index has nothing to offer yet)\n`;
   }
-  return `## FastPath (auto-injected)\n\n${CAVEMAN_OUTPUT_NUDGE}\n\n(${reason})\n\n${body.join('\n')}\n\nLocate more with FastPath MCP tools. Do NOT walk the repo.\n`;
+  return `## FastPath (auto-injected)\n\n${STYLE_NUDGES}\n\n(${reason})\n\n${body.join('\n')}\n\nLocate more with FastPath MCP tools. Do NOT walk the repo.\n`;
 }
 
 function extractPrompt(payload: HookPayload, raw: string): string {
@@ -257,7 +259,7 @@ async function run(): Promise<void> {
   const stats = getIndexStats(workspace);
   if (!stats.files) {
     record(
-      `## FastPath\n\n${CAVEMAN_OUTPUT_NUDGE}\n\nIndex empty at \`${workspace}\`. Run \`fastpath index\` before coding.\n`,
+      `## FastPath\n\n${STYLE_NUDGES}\n\nIndex empty at \`${workspace}\`. Run \`fastpath index\` before coding.\n`,
       {
         dirty: delta.dirty,
         deltaMs: delta.ms,
@@ -282,7 +284,7 @@ async function run(): Promise<void> {
       `[fastpath prompt-inject] retrieve timed out after ${IndexLimits.INJECT_RETRIEVE_BUDGET_MS}ms`,
     );
     record(
-      `## FastPath\n\n${CAVEMAN_OUTPUT_NUDGE}\n\n(retrieval timed out — use FastPath MCP tools: find / impact / window / memory)\n`,
+      `## FastPath\n\n${STYLE_NUDGES}\n\n(retrieval timed out — use FastPath MCP tools: find / impact / window / memory)\n`,
       {
         dirty: delta.dirty,
         deltaMs: delta.ms,
@@ -301,6 +303,7 @@ async function run(): Promise<void> {
     '## FastPath retrieved context (auto-injected)',
     '',
     CAVEMAN_OUTPUT_NUDGE,
+    PONYTAIL_CODE_NUDGE,
     '',
     `Workspace: \`${workspace}\` · indexed files=${stats.files} symbols=${stats.symbols}`,
     '',
@@ -385,7 +388,7 @@ run()
   .catch((err) => {
     console.error('[fastpath prompt-inject]', err);
     writeContext(
-      `## FastPath\n\n${CAVEMAN_OUTPUT_NUDGE}\n\n(retrieval error — continue carefully; prefer FastPath MCP tools)\n`,
+      `## FastPath\n\n${STYLE_NUDGES}\n\n(retrieval error — continue carefully; prefer FastPath MCP tools)\n`,
     );
   })
   .finally(() => {
