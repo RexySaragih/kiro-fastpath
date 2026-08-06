@@ -103,28 +103,34 @@ test('Viz: snapshot + HTML dashboard from fixture index', async () => {
     assert.equal(page.metrics.mcpOk, 1);
 
     const html = renderVizHtml(page);
-    assert.match(html, /FastPath index/);
-    assert.match(html, /Files by folder/);
-    assert.match(html, /Symbol kinds/);
-    assert.match(html, /graph-shell/);
-    assert.match(html, /graph-panel/);
-    assert.match(html, /requestAnimationFrame/);
-    assert.match(html, /Fullscreen/);
-    assert.match(html, /#e8a54b/);
-    assert.match(html, /class="page"/);
-    assert.match(html, /section class="panel"/);
-    assert.match(html, /lol-dot|donut|hit-ring/);
-    assert.match(html, />Injected</);
-    assert.match(html, />MCP out</);
-    assert.match(html, /Avoided ≈/);
-    assert.match(html, /Net ≈/);
-    assert.match(html, /Window vs file ≈/);
-    assert.match(html, /Injected\/MCP out = measured/);
-    assert.match(html, /MCP path credited/);
-    assert.match(html, />100</);
-    assert.match(html, />2\.1k</);
-    assert.match(html, />2\.0k</);
-    assert.doesNotMatch(html, /#c026d3/);
+    // Verify presence without printing entire HTML on fail
+    const checks = [
+      /FastPath index/,
+      /Files by folder/,
+      /Symbol kinds/,
+      /graph-shell/,
+      /graph-panel/,
+      /requestAnimationFrame/,
+      /Fullscreen/,
+      /#e8a54b/,
+      /class="page"/,
+      /section class="panel"/,
+      /donut|hit-ring/,
+      />Injected</,
+      />MCP out</,
+      /Avoided ≈/,
+      /Net ≈/,
+      /Window vs file ≈/,
+      /Injected\/MCP out = measured/,
+      /MCP path credited/,
+      />100</,
+      />2\.1k</,
+      />2\.0k</,
+    ];
+    for (const re of checks) {
+      assert.ok(re.test(html), `Missing pattern: ${re}`);
+    }
+    assert.ok(!/#c026d3/.test(html), 'Should not contain #c026d3');
     assert.ok(Array.isArray(snap.callGraph.nodes));
     if (snap.callGraph.nodes.length) {
       const n = snap.callGraph.nodes[0];
