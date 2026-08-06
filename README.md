@@ -247,7 +247,8 @@ Advertised surface is four tools (legacy names remain callable):
 ```bash
 npm test
 npm run test:connections
-npm run eval
+npm run eval                             # or eval:office for office golden queries
+npm run eval:golden                      # graded metrics (FASTPATH_ALLOW_HASH=1)
 npm run audit:critical
 node packages/cli/dist/index.js doctor /path/to/your/repo
 fastpath viz /path/to/your/repo          # local HTML dashboard of the index
