@@ -324,13 +324,17 @@ export function renderVizHtml(data: VizPageData): string {
   const heavyMax = Math.max(...data.heavyFiles.map((f) => f.symbols), 1);
   const heavyRows = data.heavyFiles
     .map((f) => {
-      const pct = Math.max(4, Math.round((f.symbols / heavyMax) * 100));
+      const pct = Math.max(2, Math.round((f.symbols / heavyMax) * 100));
       return `<tr>
         <td class="mono path">${escapeHtml(f.path)}</td>
-        <td class="heavy-bar-cell">
-          <span class="bar-track"><span class="bar-fill" style="width:${pct}%"></span></span>
+        <td class="heavy-bar-cell" title="${f.symbols} symbols (${pct}% of heaviest)">
+          <div class="heavy-bar">
+            <div class="bar-track">
+              <span class="bar-fill" style="width:${pct}%"></span>
+            </div>
+            <span class="heavy-bar-val">${f.symbols}</span>
+          </div>
         </td>
-        <td class="num">${f.symbols}</td>
         <td class="muted">${escapeHtml(f.language)}</td>
       </tr>`;
     })
@@ -635,15 +639,39 @@ export function renderVizHtml(data: VizPageData): string {
     letter-spacing: -0.03em;
   }
   .bar-track {
-    height: 6px;
-    background: rgba(24, 24, 27, 0.04);
+    height: 10px;
+    background: rgba(24, 24, 27, 0.06);
     border: 1px solid var(--line);
     overflow: hidden;
+    border-radius: 2px;
   }
   .bar-fill {
     display: block;
     height: 100%;
-    background: var(--accent);
+    min-width: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  }
+  .heavy-bar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: center;
+    min-width: 160px;
+  }
+  .heavy-bar .bar-track {
+    width: 100%;
+    min-width: 120px;
+  }
+  .heavy-bar-val {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    min-width: 2.5ch;
+    text-align: right;
+  }
+  .heavy-bar-cell {
+    width: 42%;
   }
   table {
     width: 100%;
@@ -665,7 +693,6 @@ export function renderVizHtml(data: VizPageData): string {
     background: rgba(42, 38, 34, 0.03);
   }
   tbody tr:hover td { background: rgba(232, 165, 75, 0.08); }
-  .heavy-bar-cell .bar-track { min-width: 88px; max-width: 180px; height: 6px; }
   .mono { font-family: var(--mono); }
   .path { word-break: break-all; }
   .num { font-family: var(--mono); text-align: right; }
@@ -935,7 +962,7 @@ export function renderVizHtml(data: VizPageData): string {
       ${
         heavyRows
           ? `<table>
-        <thead><tr><th>Path</th><th>Weight</th><th class="num">Symbols</th><th>Lang</th></tr></thead>
+        <thead><tr><th>Path</th><th>Symbols (vs heaviest)</th><th>Lang</th></tr></thead>
         <tbody>${heavyRows}</tbody>
       </table>`
           : '<p class="muted">No symbols yet.</p>'
