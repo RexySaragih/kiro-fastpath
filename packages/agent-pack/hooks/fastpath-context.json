@@ -27,7 +27,7 @@
       "name": "fastpath-file-save",
       "description": "Delta-index a file the moment the agent saves it — keeps retrieval fresh without prompt-time scans.",
       "trigger": "PostFileSave",
-      "matcher": "\\.(ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|kts|rs|rb|cs|php|swift|scala|c|h|cc|cpp|hpp|sql|sh|md|mdx|json|yaml|yml|toml)$",
+      "matcher": "\\.(ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|kts|rs|rb|cs|php|swift|scala|c|h|cc|cpp|hpp|sql|sh|md|mdx|json|yaml|yml|toml|vue|svelte|astro|css|scss|sass|less)$",
       "action": {
         "type": "command",
         "command": "__FASTPATH_FILE_EVENT__"
@@ -39,7 +39,7 @@
       "name": "fastpath-file-create",
       "description": "Delta-index newly created files.",
       "trigger": "PostFileCreate",
-      "matcher": "\\.(ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|kts|rs|rb|cs|php|swift|scala|c|h|cc|cpp|hpp|sql|sh|md|mdx|json|yaml|yml|toml)$",
+      "matcher": "\\.(ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|kts|rs|rb|cs|php|swift|scala|c|h|cc|cpp|hpp|sql|sh|md|mdx|json|yaml|yml|toml|vue|svelte|astro|css|scss|sass|less)$",
       "action": {
         "type": "command",
         "command": "__FASTPATH_FILE_EVENT_CREATE__"
@@ -51,7 +51,7 @@
       "name": "fastpath-file-delete",
       "description": "Remove deleted files from the index.",
       "trigger": "PostFileDelete",
-      "matcher": "\\.(ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|kts|rs|rb|cs|php|swift|scala|c|h|cc|cpp|hpp|sql|sh|md|mdx|json|yaml|yml|toml)$",
+      "matcher": "\\.(ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|kts|rs|rb|cs|php|swift|scala|c|h|cc|cpp|hpp|sql|sh|md|mdx|json|yaml|yml|toml|vue|svelte|astro|css|scss|sass|less)$",
       "action": {
         "type": "command",
         "command": "__FASTPATH_FILE_EVENT_DELETE__"

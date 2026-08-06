@@ -12,19 +12,23 @@ import {
   IndexLimits,
   InjectLimits,
   indexWorkspacePaths,
+  isQualityHit,
   listMemories,
   recallMemories,
   recentSymbols,
   type MemoryEntry,
   type SearchHit,
 } from '@fastpath/core';
-import { updateWorkspaceState } from './state.js';
+import { readTurnState, updateTurnState } from './state.js';
 import {
   type HookPayload,
+  extractAgentName,
+  extractPrompt,
   parseHookPayload,
   readStdinText,
   recordHeartbeat,
   recordHookPayload,
+  sessionIdFromPayload,
   withTimeout,
   writeContext,
   workspaceFromPayload,
@@ -38,6 +42,11 @@ import {
   estimateTokens,
   type InjectMode,
 } from './metrics.js';
+import {
+  formatRoutingLine,
+  isTinyPrompt,
+  routingAdvice,
+} from './routing.js';
 
 /**
  * `FASTPATH_INJECT=off` disables retrieval injection while still recording the
@@ -65,30 +74,6 @@ async function recallRelevantMemories(
   return raced.value ?? [];
 }
 
-const MULTI_FILE_KEYWORDS =
-  /\b(feature|refactor|migrat\w*|redesign|restructure|rewrite|implement|architecture|new module|integrat\w*|across|end.?to.?end|system)\b/i;
-const SMALL_TASK_KEYWORDS = /\b(fix|typo|bug|tweak|adjust|small|quick|one.?liner?)\b/i;
-const MULTI_FILE_HIT_SPREAD = 4;
-
-/**
- * Deterministic routing hint for humans picking Scout vs Architect.
- * One line, computed from keywords + retrieval spread — no LLM cost.
- */
-function routingHint(prompt: string, hitPaths: string[]): string | null {
-  const distinctFiles = new Set(hitPaths).size;
-  const multiSignal =
-    MULTI_FILE_KEYWORDS.test(prompt) || distinctFiles >= MULTI_FILE_HIT_SPREAD;
-  const smallSignal = SMALL_TASK_KEYWORDS.test(prompt);
-
-  if (multiSignal && !smallSignal) {
-    return `Routing: multi-file scope likely (${distinctFiles} files matched) — prefer Architect.`;
-  }
-  if (smallSignal && !multiSignal) {
-    return 'Routing: small scope — prefer Scout.';
-  }
-  return null;
-}
-
 const RECENCY_PACK_SYMBOLS = 5;
 
 function hitLoc(h: SearchHit): string {
@@ -100,10 +85,6 @@ function hitLoc(h: SearchHit): string {
   return h.line ? `${h.path}:${h.line}` : h.path;
 }
 
-/**
- * The hook cost is already paid by the time we know there is no prompt (or no
- * hits), so never emit an empty block — fall back to a cheap recency pack.
- */
 function recencyPackLines(workspace: string): string[] {
   let recent: SearchHit[] = [];
   try {
@@ -113,7 +94,9 @@ function recencyPackLines(workspace: string): string[] {
   }
   if (!recent.length) return [];
   return [
-    'Recently changed indexed symbols (recency pack):',
+    '## Recency (not query matches)',
+    '',
+    'Recent indexed symbols — do **not** treat as task hits. Ask for a path/symbol or call `find` with a sharper query.',
     ...recent.map(
       (h) => `- **${h.symbol ?? h.kind ?? 'hit'}** — \`${hitLoc(h)}\``,
     ),
@@ -131,8 +114,8 @@ function memoryLines(memories: MemoryEntry[]): string[] {
   ];
 }
 
-/** Fallback block for "no prompt extracted" — recency + memories, never empty. */
-function recencyFallbackBody(workspace: string, reason: string): string {
+/** Fallback when prompt cannot be extracted — memories only, labeled recency. */
+function noPromptFallbackBody(workspace: string, reason: string): string {
   const pack = recencyPackLines(workspace);
   let memories: MemoryEntry[] = [];
   try {
@@ -144,18 +127,13 @@ function recencyFallbackBody(workspace: string, reason: string): string {
   if (!body.length) {
     return `## FastPath\n\n${STYLE_NUDGES}\n\n(${reason}; index has nothing to offer yet)\n`;
   }
-  return `## FastPath (auto-injected)\n\n${STYLE_NUDGES}\n\n(${reason})\n\n${body.join('\n')}\n\nLocate more with FastPath MCP tools. Do NOT walk the repo.\n`;
+  return `## FastPath (auto-injected)\n\n${STYLE_NUDGES}\n\n(${reason})\n\n${body.join('\n')}\n\nLocate with FastPath MCP: find / impact / window / memory. Do NOT walk the repo.\n`;
 }
 
-function extractPrompt(payload: HookPayload, raw: string): string {
-  const fromEnv =
-    process.env.USER_PROMPT?.trim() ||
-    process.env.KIRO_USER_PROMPT?.trim() ||
-    '';
-  if (fromEnv) return fromEnv;
-  if (payload.prompt?.trim()) return payload.prompt.trim();
-  if (raw.trim() && !raw.trim().startsWith('{')) return raw.trim();
-  return '';
+function chunkBudget(prompt: string): number {
+  return isTinyPrompt(prompt)
+    ? Math.max(2, Math.floor(InjectLimits.CONTEXT_CHUNKS / 2))
+    : InjectLimits.CONTEXT_CHUNKS;
 }
 
 async function maybeDeltaReindex(
@@ -199,7 +177,8 @@ async function run(): Promise<void> {
 
   const prompt = extractPrompt(payload, raw);
   const workspace = workspaceFromPayload(payload);
-  const session = payload.session_id || '';
+  const session = sessionIdFromPayload(payload);
+  const agent = extractAgentName(payload);
   const mode = injectMode();
 
   /** Emit + ledger the tokens this turn actually cost. */
@@ -222,6 +201,7 @@ async function run(): Promise<void> {
       type: 'inject',
       at: new Date().toISOString(),
       session,
+      agent,
       mode,
       injectedTokens: payloadBody ? estimateTokens(payloadBody) : 0,
       windowVsFileTokens: mode === 'off' ? 0 : (stats.windowVsFileTokens ?? 0),
@@ -236,7 +216,8 @@ async function run(): Promise<void> {
   };
 
   if (!prompt) {
-    const body = await recencyFallbackBody(workspace, 'no user prompt in hook payload');
+    // Do not invent lastPrompt — memory-capture will use symbol-only labels.
+    const body = noPromptFallbackBody(workspace, 'no user prompt in hook payload');
     record(body, {
       dirty: 0,
       deltaMs: 0,
@@ -249,7 +230,7 @@ async function run(): Promise<void> {
   }
 
   // Remember the prompt so the Stop hook can label the session memory.
-  updateWorkspaceState(workspace, {
+  updateTurnState(workspace, session, {
     lastPrompt: prompt.slice(0, 500),
     lastPromptAt: new Date().toISOString(),
   });
@@ -259,7 +240,7 @@ async function run(): Promise<void> {
   const stats = getIndexStats(workspace);
   if (!stats.files) {
     record(
-      `## FastPath\n\n${STYLE_NUDGES}\n\nIndex empty at \`${workspace}\`. Run \`fastpath index\` before coding.\n`,
+      `## FastPath\n\n${STYLE_NUDGES}\n\nIndex empty at \`${workspace}\`. Ask the user to run \`fastpath index\` before coding (Scout cannot shell).\n`,
       {
         dirty: delta.dirty,
         deltaMs: delta.ms,
@@ -274,7 +255,7 @@ async function run(): Promise<void> {
 
   const retrieveStarted = Date.now();
   const raced = await withTimeout(
-    contextForTask(workspace, prompt, InjectLimits.CONTEXT_CHUNKS),
+    contextForTask(workspace, prompt, chunkBudget(prompt)),
     IndexLimits.INJECT_RETRIEVE_BUDGET_MS,
   );
   const retrieveMs = Date.now() - retrieveStarted;
@@ -299,6 +280,7 @@ async function run(): Promise<void> {
 
   const hits = raced.value ?? [];
   const qualityHits = countQualityHits(hits);
+  const strongHits = hits.filter((h) => isQualityHit(h));
   const lines = [
     '## FastPath retrieved context (auto-injected)',
     '',
@@ -308,11 +290,24 @@ async function run(): Promise<void> {
     `Workspace: \`${workspace}\` · indexed files=${stats.files} symbols=${stats.symbols}`,
     '',
     'Use these code windows first. Prefer FastPath `window` over whole-file host reads.',
-    'Host-read at most 3 files, and only if a window is insufficient — then edit.',
+    'Minimize host whole-file reads — windows first, then edit.',
+    'Agents: Scout ≤5 files (no shell); Architect 6+ / design; Default OK for verify.',
     '',
   ];
 
-  // The delta cap silently dropped work — say so rather than serving stale hits.
+  // Handoff from prior turn (if any).
+  try {
+    const turn = readTurnState(workspace, session);
+    if (turn.contextSummary) {
+      lines.push(`Prior handoff: ${turn.contextSummary}`, '');
+      if (turn.accessedFiles?.length) {
+        lines.push(`Prior files: ${turn.accessedFiles.join(', ')}`, '');
+      }
+    }
+  } catch {
+    /* optional */
+  }
+
   if (delta.dirty >= IndexLimits.DELTA_MAX_FILES) {
     lines.push(
       `Note: ${delta.dirty}+ dirty files, only ${IndexLimits.DELTA_MAX_FILES} reindexed — retrieval may be stale. Run \`fastpath index --git\` or \`fastpath watch\`.`,
@@ -323,37 +318,64 @@ async function run(): Promise<void> {
     lines.push('Note: delta reindex timed out — retrieval may be stale.', '');
   }
 
-  const hint = routingHint(prompt, hits.map((h) => h.path));
-  if (hint) lines.push(hint, '');
-
-  if (!hits.length) {
-    lines.push('(no strong query matches — showing recency instead of nothing)', '');
-    const pack = recencyPackLines(workspace);
-    if (pack.length) lines.push(...pack);
-    else lines.push('(index has no symbols yet — ask user for a path or symbol name)');
+  const advice = routingAdvice(
+    prompt,
+    strongHits.map((h) => h.path),
+  );
+  if (advice) {
+    const line = formatRoutingLine(advice);
+    lines.push(line, '');
+    console.warn(`\n[FastPath routing] ${advice.agent} (${advice.confidence}) — ${advice.reason}\n`);
+    appendMetric({
+      type: 'routing',
+      at: new Date().toISOString(),
+      session,
+      agent: advice.agent,
+      confidence: advice.confidence,
+      reason: advice.reason,
+    });
   }
 
-  for (const hit of hits.slice(0, InjectLimits.MAX_HITS)) {
-    lines.push(`- **${hit.symbol ?? hit.kind ?? 'hit'}** — \`${hitLoc(hit)}\``);
-    if (hit.snippet) {
-      lines.push(
-        '```',
-        hit.snippet.slice(0, InjectLimits.SNIPPET_MAX_CHARS),
-        '```',
-      );
+  if (!strongHits.length) {
+    lines.push(
+      '## NO_MATCH',
+      '',
+      'No strong query matches for this prompt. Do **not** edit from recency alone.',
+      'Ask the user for a path/symbol, or call FastPath `find` with a sharper query.',
+      '',
+    );
+    const pack = recencyPackLines(workspace);
+    if (pack.length) lines.push(...pack, '');
+  } else {
+    for (const hit of strongHits.slice(0, InjectLimits.MAX_HITS)) {
+      lines.push(`- **${hit.symbol ?? hit.kind ?? 'hit'}** — \`${hitLoc(hit)}\``);
+      if (hit.snippet) {
+        lines.push(
+          '```',
+          hit.snippet.slice(0, InjectLimits.SNIPPET_MAX_CHARS),
+          '```',
+        );
+      }
+    }
+  }
+
+  // Weak hits: paths only, no bodies (avoid authoritative-looking noise).
+  const weak = hits.filter((h) => !isQualityHit(h)).slice(0, 3);
+  if (weak.length && strongHits.length) {
+    lines.push('', 'Weak hits (paths only — verify before editing):');
+    for (const h of weak) {
+      lines.push(`- \`${hitLoc(h)}\` (${h.symbol ?? h.kind ?? 'hit'})`);
     }
   }
 
   const memories = await recallRelevantMemories(
     workspace,
     prompt,
-    hits.map((h) => h.path),
+    strongHits.map((h) => h.path),
   );
   if (memories.length) {
     lines.push('', '## FastPath memory (auto-injected)', '');
     for (const m of memories) {
-      // Flag memories whose referenced files changed — a stale fact is worse
-      // than no fact.
       const stale = m.stale ? ' [STALE — referenced files changed since saved]' : '';
       lines.push(
         `- (${m.kind}) ${m.text.slice(0, InjectLimits.MEMORY_SNIPPET_MAX_CHARS)}${stale}`,
@@ -369,13 +391,12 @@ async function run(): Promise<void> {
   const credit =
     mode === 'off' || qualityHits === 0
       ? { windowVsFileTokens: 0, discoveryTokens: 0, paths: [] as string[] }
-      : creditLocateHits(workspace, hits.slice(0, InjectLimits.MAX_HITS));
+      : creditLocateHits(workspace, strongHits.slice(0, InjectLimits.MAX_HITS));
 
   record(`${lines.join('\n')}\n`, {
     dirty: delta.dirty,
     deltaMs: delta.ms,
     retrieveMs,
-    // Doctor/metrics: only count hits with a usable body window.
     hits: qualityHits,
     timedOutDelta: delta.timedOut,
     timedOutRetrieve: false,

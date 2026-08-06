@@ -68,6 +68,76 @@ export function extractFilePaths(payload: HookPayload): string[] {
   return [...new Set(out)];
 }
 
+function asTrimmedString(value: unknown): string {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((v) => (typeof v === 'string' ? v.trim() : ''))
+      .filter(Boolean);
+    if (parts.length) return parts.join('\n');
+  }
+  return '';
+}
+
+function nestedPrompt(obj: unknown): string {
+  if (!obj || typeof obj !== 'object') return '';
+  const rec = obj as Record<string, unknown>;
+  return (
+    asTrimmedString(rec.prompt) ||
+    asTrimmedString(rec.userPrompt) ||
+    asTrimmedString(rec.message) ||
+    asTrimmedString(rec.text) ||
+    asTrimmedString(rec.content) ||
+    asTrimmedString(rec.query)
+  );
+}
+
+/**
+ * User prompt from Kiro hook payloads. Field names vary by IDE version —
+ * check env, top-level keys, and common nested shapes.
+ */
+export function extractPrompt(payload: HookPayload, raw = ''): string {
+  const fromEnv =
+    process.env.USER_PROMPT?.trim() ||
+    process.env.KIRO_USER_PROMPT?.trim() ||
+    process.env.KIRO_PROMPT?.trim() ||
+    '';
+  if (fromEnv) return fromEnv;
+
+  const top =
+    asTrimmedString(payload.prompt) ||
+    asTrimmedString(payload.userPrompt) ||
+    asTrimmedString(payload.message) ||
+    asTrimmedString(payload.text) ||
+    asTrimmedString(payload.content) ||
+    asTrimmedString(payload.query);
+  if (top) return top;
+
+  const nested =
+    nestedPrompt(payload.input) ||
+    nestedPrompt(payload.prompt) ||
+    nestedPrompt(payload.message) ||
+    nestedPrompt(payload.data);
+  if (nested) return nested;
+
+  if (raw.trim() && !raw.trim().startsWith('{')) return raw.trim();
+  return '';
+}
+
+/** Agent name when Kiro includes it (optional — not all hook versions). */
+export function extractAgentName(payload: HookPayload): string | undefined {
+  const keys = ['agent_name', 'agentName', 'agent', 'agent_id', 'agentId'] as const;
+  for (const key of keys) {
+    const value = asTrimmedString(payload[key]);
+    if (value) return value;
+  }
+  return undefined;
+}
+
+export function sessionIdFromPayload(payload: HookPayload): string {
+  return asTrimmedString(payload.session_id) || asTrimmedString(payload.sessionId) || '';
+}
+
 export function writeContext(body: string): void {
   process.stdout.write(body.endsWith('\n') ? body : `${body}\n`);
 }

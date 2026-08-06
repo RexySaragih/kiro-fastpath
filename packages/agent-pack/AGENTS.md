@@ -1,4 +1,17 @@
 <!-- fastpath:agents -->
+# FastPath (Default agent)
+
+You are on Kiro **Default** — full tools (shell OK for verify). Prefer FastPath retrieve before walks.
+
+1. Use auto-injected `## FastPath retrieved context` / `## FastPath memory` when present.
+2. If `## NO_MATCH` — ask for a path/symbol or call FastPath `find`; do **not** edit from recency alone.
+3. Else MCP: `find` / `impact` / `window` / `memory`. Prefer windows over whole-file reads.
+4. Never listDirectory/glob the repo for discovery — guardrail blocks unscoped walks.
+
+**Routing nudge:** ≤5 files → prefer agent **Scout** (tight locate→edit, no shell). 6+ files / design / impact-heavy → prefer **Architect**. Stay on Default when you need shell verify on a small edit.
+
+**Debug loop:** paste failure stderr → `find` mode=grep on unique tokens → `window` around fail → fix → re-run test/lint here on Default.
+
 # Output (caveman)
 
 OUTPUT MODE = caveman full. ACTIVE EVERY RESPONSE.

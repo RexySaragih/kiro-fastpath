@@ -168,8 +168,10 @@ bash scripts/install-target.sh /path/to/your/repo
 
 | Agent         | Model             | Effort (session) | Use for                                    |
 | ------------- | ----------------- | ---------------- | ------------------------------------------ |
-| **Scout**     | `claude-sonnet-5` | `/effort low`    | Daily coding — locate → edit, max ~3 files |
-| **Architect** | `claude-opus-5`   | `/effort medium` | Multi-file features (+ shell / subagent)   |
+| **Scout**     | `claude-sonnet-4.5` | `/effort low`    | Locate → edit, max **5** files (no shell) |
+| **Architect** | `claude-sonnet-4.5` | `/effort medium` | **6+** files / design (+ shell / subagent) |
+
+**Default agent** (Kiro built-in) is the primary daily surface — full tools + FastPath via `AGENTS.md` / inject. Prefer Scout when scope ≤5 files; Architect when 6+ or design-heavy.
 
 Kiro binds effort per session/model, not per agent — set `/effort` when you switch agents.
 

@@ -7,6 +7,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   unlinkSync,
   writeFileSync,
@@ -73,7 +74,8 @@ Usage:
   fastpath install-kiro|repair-kiro|use [workspace]
   fastpath rewire [--all] [workspace]    Re-run install-kiro (path refresh)
   fastpath unwire [workspace] [--purge-index]
-  fastpath upgrade                       git pull + npm ci + build in FASTPATH_HOME
+  fastpath upgrade [--from <checkout>] [--rewire]
+                                   Sync/build FASTPATH_HOME; --from when home has no .git
   fastpath repair-native                 Rebuild better-sqlite3 / onnx / sharp
   fastpath home|version|metrics [--summary|--tokens]
   fastpath memory list|forget <id>|distill [workspace]
@@ -105,7 +107,7 @@ function printKiroChecklist(): void {
   console.log('Kiro checklist:');
   console.log('  1) Reload window (Cmd+Shift+P → Developer: Reload Window)');
   console.log('  2) Trust workspace if prompted (required for .kiro/agents)');
-  console.log('  3) Chat agent picker → Workspace → Scout (daily) or Architect (multi-file)');
+  console.log('  3) Default agent is primary; Scout ≤5 files · Architect 6+ when needed');
   console.log('  4) Hook UI → enable all fastpath-* hooks');
   console.log('  5) Effort: Scout → /effort low · Architect → /effort medium');
 }
@@ -314,7 +316,47 @@ function installAgentTemplates(
   }
 }
 
-function cmdInstallKiro(workspace: string): void {
+function copySteeringFile(src: string, dest: string, keep: boolean): void {
+  if (keep && existsSync(dest)) {
+    console.log(`Keeping existing steering: ${dest}`);
+    return;
+  }
+  copyFileSync(src, dest);
+}
+
+function disableSiblingMcps(mcpPath: string): void {
+  if (!existsSync(mcpPath)) return;
+  try {
+    const existing = JSON.parse(readFileSync(mcpPath, 'utf8')) as {
+      mcpServers?: Record<string, { disabled?: boolean } & Record<string, unknown>>;
+    };
+    const servers = existing.mcpServers ?? {};
+    let changed = 0;
+    for (const [name, cfg] of Object.entries(servers)) {
+      if (name === 'fastpath') continue;
+      if (cfg?.disabled) continue;
+      servers[name] = { ...cfg, disabled: true };
+      changed += 1;
+    }
+    if (changed) {
+      const backup = `${mcpPath}.bak-${Date.now()}`;
+      copyFileSync(mcpPath, backup);
+      existing.mcpServers = servers;
+      writeFileSync(mcpPath, `${JSON.stringify(existing, null, 2)}\n`);
+      console.log(`Disabled ${changed} sibling MCP server(s); backup ${backup}`);
+    }
+  } catch (err) {
+    console.error(
+      'Could not apply --fastpath-only:',
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+function cmdInstallKiro(
+  workspace: string,
+  opts: { keepSteering?: boolean; fastpathOnly?: boolean } = {},
+): void {
   const missing = assertBuiltArtifacts();
   if (missing.length) {
     console.error('Cannot install-kiro — build artifacts missing:');
@@ -369,17 +411,21 @@ function cmdInstallKiro(workspace: string): void {
     process.exit(2);
   }
 
-  copyFileSync(
+  const keep = Boolean(opts.keepSteering);
+  copySteeringFile(
     join(AGENT_PACK, 'steering', 'fastpath.md'),
     join(steeringDir, 'fastpath.md'),
+    keep,
   );
-  copyFileSync(
+  copySteeringFile(
     join(AGENT_PACK, 'steering', 'caveman.md'),
     join(steeringDir, 'caveman.md'),
+    keep,
   );
-  copyFileSync(
+  copySteeringFile(
     join(AGENT_PACK, 'steering', 'ponytail.md'),
     join(steeringDir, 'ponytail.md'),
+    keep,
   );
   ensureAgentsMdFromPack(workspace, AGENT_PACK);
 
@@ -456,6 +502,10 @@ function cmdInstallKiro(workspace: string): void {
     );
   }
 
+  if (opts.fastpathOnly) {
+    disableSiblingMcps(mcpPath);
+  }
+
   const kiroIgnore = join(workspace, '.kiroignore');
   if (!existsSync(kiroIgnore)) {
     copyFileSync(join(AGENT_PACK, 'kiroignore.template'), kiroIgnore);
@@ -465,23 +515,23 @@ function cmdInstallKiro(workspace: string): void {
 
   console.log(`Installed Kiro FastPath pack into ${workspace}`);
   console.log(`FastPath home: ${home}`);
-  console.log('- .kiro/agents/Scout.md (daily coding, /scout)');
-  console.log('- .kiro/agents/Architect.md (multi-file features, /architect)');
+  console.log('- .kiro/agents/Scout.md (≤5 files, /scout)');
+  console.log('- .kiro/agents/Architect.md (6+ files / design, /architect)');
   console.log('- .kiro/steering/fastpath.md (always-on retrieval)');
   console.log('- .kiro/steering/caveman.md (always-on output style)');
   console.log('- .kiro/steering/ponytail.md (always-on minimal-code ladder)');
-  console.log('- AGENTS.md (caveman + ponytail for Default agent — always included)');
+  console.log('- AGENTS.md (Default-first FastPath + caveman + ponytail)');
   console.log('- .kiro/skills/caveman (slash /caveman intensifier)');
   console.log('- .kiro/skills/ponytail (slash /ponytail intensifier)');
   console.log('- .kiro/hooks/fastpath-context.json (inject + session + file-delta + guardrail)');
   console.log('- .kiro/settings/mcp.json (fastpath server)');
   console.log('');
   console.log('Critical:');
-  console.log('1) Select agent "Scout" (daily) or "Architect" (multi-file)');
+  console.log('1) Default agent is primary — Scout ≤5 / Architect 6+ when scope fits');
   console.log('2) Confirm all fastpath-* hooks are enabled in Kiro Hook UI');
   console.log('3) Run: fastpath warm && FASTPATH_EMBED=minilm fastpath index && fastpath doctor');
   console.log('4) Optional long sessions: fastpath watch');
-  console.log('5) Disable other MCP servers for daily coding');
+  console.log('5) Optional: install-kiro --fastpath-only · --steering=keep');
   printKiroChecklist();
 }
 
@@ -537,30 +587,122 @@ function cmdUnwire(workspace: string, purgeIndex: boolean): void {
   console.log(`Unwired FastPath from ${workspace}`);
 }
 
+function assertFastpathTree(dir: string, label: string): void {
+  const pkgPath = join(dir, 'package.json');
+  if (!existsSync(pkgPath) || !existsSync(join(dir, 'packages/cli'))) {
+    console.error(`${label} is not a FastPath tree: ${dir}`);
+    process.exit(2);
+  }
+  try {
+    const name = (JSON.parse(readFileSync(pkgPath, 'utf8')) as { name?: string }).name;
+    if (name !== 'fastpath') {
+      console.error(
+        `${label} package.json name='${name}' (expected 'fastpath') — did you pass an app repo?`,
+      );
+      process.exit(2);
+    }
+  } catch {
+    console.error(`Cannot read ${pkgPath}`);
+    process.exit(2);
+  }
+}
+
+/** Sync a FastPath checkout into FASTPATH_HOME (no install-home.sh). */
+function syncHomeFromCheckout(src: string, home: string): void {
+  const srcAbs = resolve(src);
+  const homeAbs = resolve(home);
+  assertFastpathTree(srcAbs, 'Source');
+
+  let srcCanon = srcAbs;
+  let homeCanon = homeAbs;
+  try {
+    srcCanon = realpathSync(srcAbs);
+    homeCanon = realpathSync(homeAbs);
+  } catch {
+    /* keep resolved paths */
+  }
+
+  if (
+    srcCanon === homeCanon ||
+    homeCanon.startsWith(`${srcCanon}/`) ||
+    srcCanon.startsWith(`${homeCanon}/`)
+  ) {
+    console.error(
+      `Source and FASTPATH_HOME are the same or nested:\n  source: ${srcCanon}\n  home:   ${homeCanon}\n` +
+        `Point FASTPATH_HOME at ~/kiro-fastpath and pass --from <checkout>.`,
+    );
+    process.exit(2);
+  }
+
+  mkdirSync(homeAbs, { recursive: true });
+  console.log(`Syncing ${srcAbs} → ${homeAbs}`);
+
+  const rsync = spawnSync(
+    'rsync',
+    [
+      '-a',
+      '--delete',
+      '--exclude',
+      'node_modules',
+      '--exclude',
+      '.fastpath',
+      '--exclude',
+      'dist-release',
+      '--exclude',
+      '.git',
+      `${srcAbs}/`,
+      `${homeAbs}/`,
+    ],
+    { encoding: 'utf8', stdio: 'inherit' },
+  );
+  if (rsync.status !== 0) {
+    console.log('rsync unavailable/failed — falling back to cp');
+    // Best-effort overwrite without wiping home first (safer than find|rm).
+    const cp = spawnSync('cp', ['-R', `${srcAbs}/.`, homeAbs], {
+      encoding: 'utf8',
+      stdio: 'inherit',
+    });
+    if (cp.status !== 0) process.exit(cp.status ?? 2);
+  }
+
+  assertFastpathTree(homeAbs, 'FASTPATH_HOME');
+}
+
 function cmdRewire(all: boolean, workspace: string): void {
   const targets = all ? listWiredWorkspaces() : [workspace];
   if (!targets.length) {
     console.error('No wired workspaces in ~/.fastpath/config.json — run `fastpath use` first');
     process.exit(2);
   }
+  let done = 0;
   for (const ws of targets) {
     if (!existsSync(ws)) {
       console.error(`SKIP missing workspace: ${ws}`);
       continue;
     }
+    // Skip ephemeral test dirs left in the registry.
+    if (ws.includes('/var/folders/') || ws.includes('/tmp/')) {
+      console.error(`SKIP temp workspace: ${ws}`);
+      continue;
+    }
     console.log(`\n==> rewire ${ws}`);
     cmdInstallKiro(ws);
+    done += 1;
   }
+  console.log(`\nRewired ${done} workspace(s).`);
 }
 
-function cmdUpgrade(): void {
+function cmdUpgrade(opts: { from?: string; rewire?: boolean } = {}): void {
   const home = resolveFastpathHome();
   if (!existsSync(join(home, 'package.json'))) {
     console.error(`FASTPATH_HOME invalid: ${home}`);
     process.exit(2);
   }
   console.log(`Upgrading FastPath home: ${home}`);
-  if (existsSync(join(home, '.git'))) {
+
+  if (opts.from) {
+    syncHomeFromCheckout(opts.from, home);
+  } else if (existsSync(join(home, '.git'))) {
     const pull = spawnSync('git', ['pull', '--ff-only'], {
       cwd: home,
       encoding: 'utf8',
@@ -571,7 +713,14 @@ function cmdUpgrade(): void {
       process.exit(pull.status ?? 2);
     }
   } else {
-    console.log('(no .git — skipped pull; sync via install-home if needed)');
+    console.error(
+      'FASTPATH_HOME has no .git — cannot pull.\n' +
+        'Sync from your checkout (no install-home.sh):\n' +
+        `  fastpath upgrade --from /path/to/kiro-fastpath-checkout --rewire\n` +
+        'Example:\n' +
+        `  fastpath upgrade --from /Volumes/ADATA/Projects/fastpath --rewire`,
+    );
+    process.exit(2);
   }
 
   const ci = spawnSync('npm', ['ci'], { cwd: home, encoding: 'utf8', stdio: 'inherit' });
@@ -592,17 +741,45 @@ function cmdUpgrade(): void {
   });
   if (build.status !== 0) process.exit(build.status ?? 2);
 
+  // Sanity: new agent-mode files must exist after this big update.
+  const mustExist = [
+    join(home, 'packages/cli/dist/routing.js'),
+    join(home, 'packages/cli/dist/prompt-inject.js'),
+    join(home, 'packages/agent-pack/agents/Scout.md'),
+  ];
+  for (const p of mustExist) {
+    if (!existsSync(p)) {
+      console.error(`Upgrade incomplete — missing ${p}`);
+      process.exit(2);
+    }
+  }
+  const scout = readFileSync(join(home, 'packages/agent-pack/agents/Scout.md'), 'utf8');
+  if (!/at most 5/.test(scout) || !/claude-sonnet-4\.5/.test(scout)) {
+    console.error(
+      'Upgrade incomplete — Scout.md still looks old (expected Scout ≤5 + claude-sonnet-4.5)',
+    );
+    process.exit(2);
+  }
+
   const cfg = loadConfig();
   cfg.home = home;
   cfg.version = readPackageVersion(home);
   saveConfig(cfg);
 
   console.log(`\nUpgraded to v${cfg.version}`);
-  console.log('Next: fastpath rewire --all   # refresh agent/hook absolute paths');
-  const wired = listWiredWorkspaces();
+  const wired = listWiredWorkspaces().filter(
+    (w) => existsSync(w) && !w.includes('/var/folders/') && !w.includes('/tmp/'),
+  );
   if (wired.length) {
     console.log(`Known workspaces (${wired.length}):`);
     for (const w of wired) console.log(`  ${w}`);
+  }
+
+  if (opts.rewire) {
+    console.log('\n==> rewire --all (refresh agents/hooks/steering)');
+    cmdRewire(true, home);
+  } else {
+    console.log('Next: fastpath rewire --all   # refresh agent/hook absolute paths');
   }
 }
 
@@ -736,12 +913,43 @@ async function main(): Promise<void> {
       break;
     }
     case 'install-kiro':
-    case 'repair-kiro':
-      cmdInstallKiro(workspaceFromArgs(rest));
+    case 'repair-kiro': {
+      const keep = takeFlag(rest, '--steering=keep');
+      // also accept --steering keep as two tokens
+      let args = keep.args;
+      let keepSteering = keep.set;
+      if (!keepSteering) {
+        const idx = args.indexOf('--steering');
+        if (idx >= 0 && args[idx + 1] === 'keep') {
+          keepSteering = true;
+          args = args.filter((_, i) => i !== idx && i !== idx + 1);
+        }
+      }
+      const only = takeFlag(args, '--fastpath-only');
+      cmdInstallKiro(workspaceFromArgs(only.args), {
+        keepSteering,
+        fastpathOnly: only.set,
+      });
       break;
-    case 'use':
-      cmdInstallKiro(workspaceFromArgs(rest));
+    }
+    case 'use': {
+      const keep = takeFlag(rest, '--steering=keep');
+      let args = keep.args;
+      let keepSteering = keep.set;
+      if (!keepSteering) {
+        const idx = args.indexOf('--steering');
+        if (idx >= 0 && args[idx + 1] === 'keep') {
+          keepSteering = true;
+          args = args.filter((_, i) => i !== idx && i !== idx + 1);
+        }
+      }
+      const only = takeFlag(args, '--fastpath-only');
+      cmdInstallKiro(workspaceFromArgs(only.args), {
+        keepSteering,
+        fastpathOnly: only.set,
+      });
       break;
+    }
     case 'rewire': {
       const all = takeFlag(rest, '--all');
       cmdRewire(all.set, workspaceFromArgs(all.args));
@@ -752,9 +960,22 @@ async function main(): Promise<void> {
       cmdUnwire(workspaceFromArgs(purge.args), purge.set);
       break;
     }
-    case 'upgrade':
-      cmdUpgrade();
+    case 'upgrade': {
+      const rewireFlag = takeFlag(rest, '--rewire');
+      let args = rewireFlag.args;
+      let from: string | undefined;
+      const fromIdx = args.indexOf('--from');
+      if (fromIdx >= 0) {
+        from = args[fromIdx + 1];
+        if (!from || from.startsWith('--')) {
+          console.error('usage: fastpath upgrade [--from <checkout>] [--rewire]');
+          process.exit(2);
+        }
+        args = args.filter((_, i) => i !== fromIdx && i !== fromIdx + 1);
+      }
+      cmdUpgrade({ from, rewire: rewireFlag.set });
       break;
+    }
     case 'repair-native':
       cmdRepairNative();
       break;

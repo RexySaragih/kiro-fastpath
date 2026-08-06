@@ -5,6 +5,7 @@ export type MetricEvent =
       type: 'inject';
       at: string;
       session?: string;
+      agent?: string;
       mode?: InjectMode;
       dirty: number;
       deltaMs: number;
@@ -67,4 +68,19 @@ export type MetricEvent =
       at: string;
       gitDelta: number;
       ms: number;
+    }
+  | {
+      type: 'stop';
+      at: string;
+      session?: string;
+      edited: boolean;
+      paths: number;
+    }
+  | {
+      type: 'routing';
+      at: string;
+      session?: string;
+      agent: string;
+      confidence: 'high' | 'medium' | 'low';
+      reason: string;
     };

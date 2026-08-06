@@ -129,8 +129,8 @@ test('install wires resources + caveman; inject emits path ranges', async () => 
     assert.match(scout, /- window\n/);
     assert.match(scout, /OUTPUT MODE = caveman full/);
     assert.match(scout, /CODE MODE = ponytail full/);
-    assert.match(scout, /\bBad:/);
-    assert.match(scout, /\bGood:/);
+    assert.match(scout, /at most 5 distinct files/);
+    assert.doesNotMatch(scout, /\bcapability:\s*shell\b[\s\S]*effect:\s*allow/);
 
     const caveman = readFileSync(join(dir, '.kiro/steering/caveman.md'), 'utf8');
     assert.match(caveman, /Caveman full/);

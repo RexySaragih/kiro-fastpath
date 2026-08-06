@@ -198,6 +198,13 @@ export const TEXT_ONLY_EXTENSIONS = new Set([
   '.yaml',
   '.yml',
   '.toml',
+  '.vue',
+  '.svelte',
+  '.astro',
+  '.css',
+  '.scss',
+  '.sass',
+  '.less',
 ]);
 
 export const INDEXABLE_EXTENSIONS = new Set([

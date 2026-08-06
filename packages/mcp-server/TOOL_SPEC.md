@@ -57,7 +57,7 @@ Definitions + callers + importers + refs for a **known** symbol (definitions/cal
 Read a line-range from a workspace file. Params: `path`, `start_line`, `end_line`. Prefer over whole-file host reads. Same annotations.
 
 ### 4. `memory`
-Persist or recall project memories. Params: `action` (`save`\|`recall`\|`list`\|`forget`), plus action-specific fields. Save is NOT readOnly (local store write).
+Persist or recall project memories. Params: `op` (`save`|`recall`|`list`|`forget`), plus op-specific fields (`text` required for recall/save/forget). Save is NOT readOnly (local store write). list returns recent memories; forget needs numeric id in `text`.
 
 Legacy aliases (`search`, `symbol`, `context_for_task`, `grep_fast`, `memory_save`, `memory_recall`) remain callable for older agent profiles but are not listed in `ListTools`.
 

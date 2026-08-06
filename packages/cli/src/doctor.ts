@@ -228,9 +228,8 @@ function checkAgentFile(
     ok.push(`${label} sets CODE MODE ponytail full`);
   }
   if (!/\bBad:\s*/.test(body) || !/\bGood:\s*/.test(body)) {
-    issues.push(
-      `${label} missing caveman few-shot Bad:/Good: examples — re-run \`fastpath install-kiro\``,
-    );
+    // Few-shot examples live in steering/skills; agent bodies keep a short activation stanza.
+    ok.push(`${label} uses thin caveman activation (examples in steering)`);
   } else {
     ok.push(`${label} has caveman few-shot examples`);
   }
@@ -544,7 +543,8 @@ export async function runDoctor(workspace: string): Promise<DoctorResult> {
     'Hook UI enable is unverifiable from disk — confirm fastpath-auto-context is ON in Kiro Hook UI.',
   );
   notes.push(
-    'Effort is session-level in Kiro (not per-agent) — Scout: /effort low · Architect: /effort medium.',
+    'Effort is session-level in Kiro (not per-agent) — Scout: /effort low · Architect: /effort medium. Default is primary daily agent.',
+    'Scout ≤5 files (shell deny); Architect 6+ / design; routing advisor is inject-only.',
   );
 
   const hookPath = join(workspace, '.kiro/hooks/fastpath-context.json');
@@ -769,7 +769,9 @@ export function printDoctor(result: DoctorResult, asJson: boolean): void {
     console.log('Enable them in the Kiro Hook UI, run one prompt, then re-run doctor.');
   } else if (result.ready) {
     console.log('\nSCOUT READY');
-    console.log('In Kiro: select agent "Scout". Hook liveness verified by heartbeat.');
+    console.log(
+      'In Kiro: Default is primary. Scout ≤5 files · Architect 6+. Hook liveness verified by heartbeat.',
+    );
   } else {
     console.log(`\nNOT READY (${result.issues.length} issue(s))`);
   }

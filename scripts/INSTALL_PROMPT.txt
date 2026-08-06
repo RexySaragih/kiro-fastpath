@@ -26,8 +26,8 @@ ONE HOME, MANY REPOS
 - Each project keeps its own .fastpath/index.db and .kiro/ wiring.
 
 AGENTS
-- Scout = daily default — model claude-sonnet-5, session /effort low.
-- Architect = bigger work — model claude-opus-5, session /effort medium.
+- Scout = daily default — model claude-sonnet-4.5, session /effort low.
+- Architect = bigger work — model claude-sonnet-4.5, session /effort medium.
 - Effort is NOT per-agent in Kiro; run /effort when switching agents.
 - NEVER put allowedTools / includeMcpJson / toolsSettings in agent files —
   Kiro IDE silently drops the agent. doctor must say "Agent pack IDE-compatible".

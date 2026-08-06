@@ -122,8 +122,8 @@ test('Viz: snapshot + HTML dashboard from fixture index', async () => {
     assert.match(html, /Injected\/MCP out = measured/);
     assert.match(html, /MCP path credited/);
     assert.match(html, />100</);
-    assert.match(html, />2100</);
-    assert.match(html, />1960</);
+    assert.match(html, />2\.1k</);
+    assert.match(html, />2\.0k</);
     assert.doesNotMatch(html, /#c026d3/);
     assert.ok(Array.isArray(snap.callGraph.nodes));
     if (snap.callGraph.nodes.length) {

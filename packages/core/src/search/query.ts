@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { spawnSync } from 'node:child_process';
 import { getMeta, openDatabase } from '../db/schema.js';
 import { embedQuery } from '../embed/backend.js';
 import { blobToVec, cosine } from '../embed/hash.js';
@@ -535,28 +536,74 @@ export function listIndexedPaths(workspace: string, prefix = '', limit = 40): st
 }
 
 /**
- * Cheap recency pack: symbols from the most recently modified indexed files.
- * Used when there is no query (or no hits) — the hook cost is already paid,
- * so emit something useful instead of an empty block.
+ * Cheap recency pack: prefer git-touched files (last 2 days), else mtime.
+ * Used when there is no query (or no hits) — labeled "not query matches" in inject.
  */
 export function recentSymbols(workspace: string, limit = 6): SearchHit[] {
+  let gitPaths: string[] = [];
+  try {
+    const res = spawnSync(
+      'git',
+      ['-C', workspace, 'log', '--name-only', '--since=2 days ago', '--pretty=format:'],
+      { encoding: 'utf8', maxBuffer: 2_000_000 },
+    );
+    if (res.status === 0 && res.stdout) {
+      gitPaths = [
+        ...new Set(
+          res.stdout
+            .split('\n')
+            .map((l) => l.trim())
+            .filter(Boolean),
+        ),
+      ].slice(0, 40);
+    }
+  } catch {
+    gitPaths = [];
+  }
+
   return withWorkspaceDb(workspace, (db) => {
-    const rows = db
-      .prepare(
-        `SELECT s.path, s.name, s.kind, s.line, s.signature
-         FROM symbols s
-         JOIN files f ON f.path = s.path
-         ORDER BY f.mtime_ms DESC, s.line ASC
-         LIMIT ?`,
-      )
-      .all(limit) as Array<{
+    let rows: Array<{
       path: string;
       name: string;
       kind: string;
       line: number;
       signature: string;
-    }>;
-    const hits = rows.map((row, i) => ({
+    }> = [];
+
+    if (gitPaths.length) {
+      const placeholders = gitPaths.map(() => '?').join(',');
+      rows = db
+        .prepare(
+          `SELECT s.path, s.name, s.kind, s.line, s.signature
+           FROM symbols s
+           WHERE s.path IN (${placeholders})
+           ORDER BY s.line ASC
+           LIMIT ?`,
+        )
+        .all(...gitPaths, limit) as typeof rows;
+    }
+
+    if (rows.length < limit) {
+      const more = db
+        .prepare(
+          `SELECT s.path, s.name, s.kind, s.line, s.signature
+           FROM symbols s
+           JOIN files f ON f.path = s.path
+           ORDER BY f.mtime_ms DESC, s.line ASC
+           LIMIT ?`,
+        )
+        .all(limit) as typeof rows;
+      const seen = new Set(rows.map((r) => `${r.path}:${r.line}:${r.name}`));
+      for (const row of more) {
+        const key = `${row.path}:${row.line}:${row.name}`;
+        if (seen.has(key)) continue;
+        rows.push(row);
+        seen.add(key);
+        if (rows.length >= limit) break;
+      }
+    }
+
+    const hits = rows.slice(0, limit).map((row, i) => ({
       path: row.path,
       symbol: row.name,
       kind: row.kind,

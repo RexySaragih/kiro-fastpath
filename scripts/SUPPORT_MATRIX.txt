@@ -38,5 +38,6 @@ Security
 Known Kiro product limits (not FastPath bugs)
 ---------------------------------------------
   - Per-agent effort field missing (#8754)
+  - Default agent is primary daily surface; Scout ≤5 / Architect 6+
   - File-tree / context packing may still inject workspace noise
   - Soft steering cannot force MCP tool use — rely on auto-inject + Scout binding

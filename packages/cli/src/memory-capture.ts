@@ -10,17 +10,23 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, relative, isAbsolute } from 'node:path';
 import { parseFileAst, saveMemory } from '@fastpath/core';
 import {
+  extractPrompt,
   parseHookPayload,
   readStdinText,
   recordHeartbeat,
   recordHookPayload,
+  sessionIdFromPayload,
   workspaceFromPayload,
 } from './hook-util.js';
-import { readWorkspaceState, updateWorkspaceState } from './state.js';
+import {
+  clearTouchedAfterCapture,
+  readTurnState,
+  updateTurnState,
+} from './state.js';
+import { appendMetric } from './metrics.js';
 
 const PROMPT_SNIPPET_CHARS = 160;
 const MAX_PATHS_IN_MEMORY = 5;
-
 const MAX_SYMBOLS_IN_MEMORY = 6;
 
 function toRelPaths(workspace: string, paths: string[]): string[] {
@@ -84,7 +90,8 @@ async function run(): Promise<void> {
   const payload = parseHookPayload(raw);
   recordHookPayload('memory-capture', raw, payload);
   const workspace = workspaceFromPayload(payload);
-  const state = readWorkspaceState(workspace);
+  const sessionId = sessionIdFromPayload(payload);
+  const state = readTurnState(workspace, sessionId);
 
   const touched = state.touchedPaths ?? [];
   if (!touched.length) return; // nothing edited this turn — no memory worth keeping
@@ -92,13 +99,21 @@ async function run(): Promise<void> {
   const rels = toRelPaths(workspace, touched);
   const shown = rels.slice(0, MAX_PATHS_IN_MEMORY);
   const more = rels.length - shown.length;
-  const task = state.lastPrompt?.trim().slice(0, PROMPT_SNIPPET_CHARS) || 'unspecified task';
+
+  // Prefer stored prompt; Stop payload may also carry the user text.
+  const task =
+    state.lastPrompt?.trim().slice(0, PROMPT_SNIPPET_CHARS) ||
+    extractPrompt(payload, raw).slice(0, PROMPT_SNIPPET_CHARS);
 
   const symbols = await changedSymbols(workspace, rels);
   const what = symbols.length
     ? `changed ${symbols.join(', ')}`
     : `edited ${shown.join(', ')}${more > 0 ? ` (+${more} more)` : ''}`;
-  const text = `${task} — ${what}`;
+
+  // Never invent "unspecified task" — symbol/path-only labels are fine.
+  const text = task ? `${task} — ${what}` : what;
+  if (!text.trim()) return;
+
   await saveMemory(workspace, {
     kind: 'session',
     text,
@@ -106,10 +121,20 @@ async function run(): Promise<void> {
     paths: shown,
   });
 
-  updateWorkspaceState(workspace, {
-    touchedPaths: [],
-    lastCaptureAt: new Date().toISOString(),
+  updateTurnState(workspace, sessionId, {
+    contextSummary: text.slice(0, 300),
+    accessedFiles: shown,
   });
+  clearTouchedAfterCapture(workspace, sessionId);
+
+  appendMetric({
+    type: 'stop',
+    at: new Date().toISOString(),
+    session: sessionId,
+    edited: true,
+    paths: shown.length,
+  });
+
   console.error(`[fastpath memory-capture] saved session memory (${shown.length} paths)`);
 }
 

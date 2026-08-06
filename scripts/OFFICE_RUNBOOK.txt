@@ -32,7 +32,7 @@ This creates .fastpath/index.db + .kiro agents/hooks/mcp for that repo.
 ---------------------
   1. Reload window
   2. Trust workspace if prompted (required for .kiro/agents)
-  3. Chat agent picker → Workspace → Scout (daily) or Architect (bigger)
+  3. Chat agent picker → Default (daily) or Workspace → Scout (≤5) / Architect (6+)
   4. Hook UI → enable "fastpath-auto-context"
   5. Effort: Scout → /effort low · Architect → /effort medium
 
@@ -42,8 +42,9 @@ Re-run: fastpath repair-kiro /path/to/repo
 
 4) Agents
 ---------
-  Scout.md     — claude-sonnet-5, /effort low — daily locate→edit (max ~3 files)
-  Architect.md — claude-opus-5, /effort medium — multi-file (+ shell/subagent)
+  Default      — primary daily (AGENTS.md + inject + shell verify)
+  Scout.md     — claude-sonnet-4.5, /effort low — locate→edit (max 5 files, no shell)
+  Architect.md — claude-sonnet-4.5, /effort medium — 6+ files (+ shell/subagent)
   Effort is session-level in Kiro; set /effort when switching agents.
   Scout.json / Marshal.md / Router.md are NOT installed (legacy removed on rewire).
 
@@ -54,7 +55,8 @@ Re-run: fastpath repair-kiro /path/to/repo
   Long sessions — fastpath watch   (path-level delta)
   After git pull — fastpath index --git
   Full rebuild   — fastpath index --rebuild
-  After upgrade  — fastpath upgrade && fastpath rewire --all
+  After upgrade  — fastpath upgrade --from <checkout> --rewire
+                   (or: fastpath upgrade && fastpath rewire --all when home is a git clone)
 
 
 6) Debug
@@ -75,7 +77,7 @@ Corrupt DB → fastpath index --rebuild
 7) Verify (realistic prompt — do NOT say "use FastPath")
 --------------------------------------------------------
   Where is RunEngine defined, and who calls performVaultLogin?
-  Open at most 3 files, then stop. Don’t edit yet.
+  Open at most 5 files, then stop. Don’t edit yet.
 
 Pass: paths under packages/…, hook ran, no repo walk.
 Fail: broad listDirectory / many random reads before an answer.

@@ -160,7 +160,7 @@ test('Install: all event hooks + Scout/Architect wired with no placeholders', ()
 
     const scout = readFileSync(join(dir, '.kiro/agents/Scout.md'), 'utf8');
     assert.match(scout, /name:\s*Scout/);
-    assert.match(scout, /claude-sonnet-5/);
+    assert.match(scout, /claude-sonnet-4\.5/);
     assert.doesNotMatch(scout, /capability:\s*write\b/);
     assert.doesNotMatch(scout, /__FASTPATH_/);
     // 4-tool surface (find / impact / window / memory) + caveman wiring.
@@ -303,7 +303,7 @@ test('Prompt inject: routing hint appears for multi-file asks, memories injected
       }),
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /Routing: multi-file scope likely/);
+    assert.match(result.stdout, /Routing advisor:.*Architect/);
     assert.match(result.stdout, /FastPath memory/);
     assert.match(result.stdout, /validateJwt/);
   } finally {

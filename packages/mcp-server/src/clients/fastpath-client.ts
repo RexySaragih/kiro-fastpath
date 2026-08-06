@@ -1,9 +1,11 @@
 import {
   contextForTask,
   DEFAULT_TOP_K,
+  forgetMemory,
   formatImpact,
   grepFast,
   impactForSymbol,
+  listMemories,
   lookupSymbol,
   readWindow,
   recallMemories,
@@ -61,6 +63,14 @@ export class FastpathClient {
 
   async memoryRecall(query: string, topK?: number): Promise<MemoryEntry[]> {
     return recallMemories(this.workspace, query, topK);
+  }
+
+  memoryList(limit?: number): MemoryEntry[] {
+    return listMemories(this.workspace, limit);
+  }
+
+  memoryForget(id: number): boolean {
+    return forgetMemory(this.workspace, id);
   }
 
   wrapError(err: unknown): string {

@@ -41,6 +41,10 @@ async function run(): Promise<void> {
   const payload = parseHookPayload(raw);
   recordHookPayload(hookName, raw, payload);
   const workspace = workspaceFromPayload(payload);
+  const sessionId =
+    (typeof payload.session_id === 'string' && payload.session_id) ||
+    (typeof payload.sessionId === 'string' && payload.sessionId) ||
+    '';
   const started = Date.now();
 
   const reported = extractFilePaths(payload).filter(isIndexable);
@@ -70,7 +74,7 @@ async function run(): Promise<void> {
     FILE_EVENT_BUDGET_MS,
   );
   const indexed = raced.value?.filesIndexed ?? 0;
-  recordTouchedPaths(workspace, absPaths); // feeds Stop-hook session memory
+  recordTouchedPaths(workspace, absPaths, sessionId); // feeds Stop-hook session memory
   appendMetric({
     type: 'file-event',
     at: new Date().toISOString(),

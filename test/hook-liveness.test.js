@@ -87,7 +87,7 @@ test('prompt-inject emits a recency pack instead of an empty block', async () =>
     });
     assert.equal(result.status, 0, result.stderr);
     assert.doesNotMatch(result.stdout, /skip retrieval/);
-    assert.match(result.stdout, /recency pack/i);
+    assert.match(result.stdout, /Recency \(not query matches\)/i);
     assert.match(result.stdout, /computeThing/);
 
     // Heartbeat proves the hook actually ran (liveness-based readiness).

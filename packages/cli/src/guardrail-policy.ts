@@ -49,6 +49,15 @@ export function isScopedWalk({ path, depth }: WalkRequest): boolean {
     return false;
   }
   if (clean.includes('**')) return false;
+  // Metadata dirs are cheap and legitimate for agent/config work.
+  if (
+    clean === '.kiro' ||
+    clean.startsWith('.kiro/') ||
+    clean === '.git' ||
+    clean.startsWith('.git/')
+  ) {
+    return true;
+  }
   if (depth !== null && depth > 1) return false;
   return true;
 }
@@ -149,6 +158,15 @@ function isFindDiscovery(tokens: string[]): boolean {
 export function isRepoDiscoveryShell(command: string): boolean {
   const cmd = command.trim();
   if (!cmd) return false;
+
+  // Common bypasses that walk the tree then filter.
+  if (
+    /\bls\b[\s\S]*\|\s*(grep|rg|ag|ack)\b/i.test(cmd) ||
+    /\bfind\b[\s\S]*\bxargs\b/i.test(cmd) ||
+    /\bfor\s+\w+\s+in\b[\s\S]*\b(grep|rg)\b/i.test(cmd)
+  ) {
+    return true;
+  }
 
   // Only the producer side of a pipe can discover files; later stages filter stdout.
   const firstPipeStage = cmd.split('|')[0] ?? cmd;
