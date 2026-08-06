@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { HARD_MAX_TOP_K, type SearchHit } from '@fastpath/core';
 import type { FastpathClient } from '../clients/fastpath-client.js';
+import { recordLocateMetric, recordPlainMetric } from '../record-metric.js';
 import { formatHits, toolErr, toolOk } from '../utils/format.js';
 
 const READ_ONLY = {
@@ -179,6 +180,8 @@ export const findTool: Tool = {
   name: 'find',
   description:
     'Locate code in the indexed repo instead of listDirectory/glob/grep. ' +
+    'Returns focused code windows (path:start-end + body) — prefer these over whole-file reads. ' +
+    'Use `window` if you need a few more lines. ' +
     'mode: search=concept, symbol=identifier, grep=regex in file contents, context=task starter pack.',
   inputSchema: {
     type: 'object',
@@ -213,17 +216,19 @@ export async function handleFind(client: FastpathClient, args: unknown) {
   const { query, mode = 'search', kind, top_k, path_prefix } = parsed.data;
   switch (mode) {
     case 'symbol':
-      return runHits(client, `## symbol: ${query}`, () =>
+      return runHits(client, 'find', `## symbol: ${query}`, () =>
         client.symbol(query, kind, top_k),
       );
     case 'grep':
-      return runHits(client, `## grep: ${query}`, () =>
+      return runHits(client, 'find', `## grep: ${query}`, () =>
         client.grep(query, top_k, path_prefix),
       );
     case 'context':
-      return runHits(client, '## context', () => client.context(query, top_k));
+      return runHits(client, 'find', '## context', () =>
+        client.context(query, top_k),
+      );
     default:
-      return runHits(client, `## search: ${query}`, () =>
+      return runHits(client, 'find', `## search: ${query}`, () =>
         client.search(query, top_k, path_prefix),
       );
   }
@@ -270,26 +275,30 @@ const impactSchema = z.object({
   top_k: z.number().int().positive().max(HARD_MAX_TOP_K).optional(),
 });
 
-export function resolveWorkspace(): string {
-  return process.env.FASTPATH_WORKSPACE?.trim() || process.cwd();
-}
+export { resolveWorkspace } from '../workspace.js';
 
 async function runHits(
   client: FastpathClient,
+  tool: string,
   title: string,
   fn: () => SearchHit[] | Promise<SearchHit[]>,
 ) {
   try {
-    return toolOk(formatHits(await fn(), title));
+    const hits = await fn();
+    const result = toolOk(formatHits(hits, title));
+    recordLocateMetric(tool, result, hits);
+    return result;
   } catch (err) {
-    return toolErr(client.wrapError(err));
+    const result = toolErr(client.wrapError(err));
+    recordLocateMetric(tool, result, []);
+    return result;
   }
 }
 
 export async function handleSearch(client: FastpathClient, args: unknown) {
   const parsed = searchSchema.safeParse(args);
   if (!parsed.success) return toolErr(parsed.error.message);
-  return runHits(client, `## search: ${parsed.data.query}`, () =>
+  return runHits(client, 'search', `## search: ${parsed.data.query}`, () =>
     client.search(parsed.data.query, parsed.data.top_k, parsed.data.path_prefix),
   );
 }
@@ -297,7 +306,7 @@ export async function handleSearch(client: FastpathClient, args: unknown) {
 export async function handleSymbol(client: FastpathClient, args: unknown) {
   const parsed = symbolSchema.safeParse(args);
   if (!parsed.success) return toolErr(parsed.error.message);
-  return runHits(client, `## symbol: ${parsed.data.name}`, () =>
+  return runHits(client, 'symbol', `## symbol: ${parsed.data.name}`, () =>
     client.symbol(parsed.data.name, parsed.data.kind, parsed.data.top_k),
   );
 }
@@ -305,7 +314,7 @@ export async function handleSymbol(client: FastpathClient, args: unknown) {
 export async function handleContextForTask(client: FastpathClient, args: unknown) {
   const parsed = contextSchema.safeParse(args);
   if (!parsed.success) return toolErr(parsed.error.message);
-  return runHits(client, '## context_for_task', () =>
+  return runHits(client, 'context_for_task', '## context_for_task', () =>
     client.context(parsed.data.task, parsed.data.max_chunks),
   );
 }
@@ -313,7 +322,7 @@ export async function handleContextForTask(client: FastpathClient, args: unknown
 export async function handleGrepFast(client: FastpathClient, args: unknown) {
   const parsed = grepSchema.safeParse(args);
   if (!parsed.success) return toolErr(parsed.error.message);
-  return runHits(client, `## grep_fast: ${parsed.data.pattern}`, () =>
+  return runHits(client, 'grep_fast', `## grep_fast: ${parsed.data.pattern}`, () =>
     client.grep(parsed.data.pattern, parsed.data.top_k, parsed.data.path_prefix),
   );
 }
@@ -322,10 +331,14 @@ export async function handleImpact(client: FastpathClient, args: unknown) {
   const parsed = impactSchema.safeParse(args);
   if (!parsed.success) return toolErr(parsed.error.message);
   try {
-    return toolOk(
+    const result = toolOk(
       client.impact(parsed.data.name, parsed.data.depth, parsed.data.top_k),
     );
+    recordPlainMetric('impact', result);
+    return result;
   } catch (err) {
-    return toolErr(client.wrapError(err));
+    const result = toolErr(client.wrapError(err));
+    recordPlainMetric('impact', result);
+    return result;
   }
 }

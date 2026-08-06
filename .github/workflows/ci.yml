@@ -57,7 +57,9 @@ jobs:
             node packages/cli/dist/index.js doctor "$TMP" --json | tee /tmp/doctor.json
           node -e "
             const d=require('/tmp/doctor.json');
-            if(!d.ready) { console.error(d); process.exit(1); }
-            if(d.embedBackend!=='minilm') { console.error('expected minilm', d); process.exit(1); }
-            console.log('MiniLM doctor OK');
+            if(d.embedBackend!=='minilm') { console.error('expected minilm, got', d.embedBackend); process.exit(1); }
+            if(!d.integrityOk) { console.error('integrity fail'); process.exit(1); }
+            if(!d.searchSmokeOk) { console.error('search smoke fail'); process.exit(1); }
+            if(d.stats.symbols < 10) { console.error('expected 10+ symbols, got', d.stats.symbols); process.exit(1); }
+            console.log('MiniLM index + search OK');
           "

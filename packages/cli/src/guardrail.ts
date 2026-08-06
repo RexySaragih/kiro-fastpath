@@ -47,7 +47,7 @@ const DUPLICATE_READ_WARN_AT = 2;
 
 const BLOCK_MESSAGE =
   'FastPath guardrail: unscoped repo walking is disabled to save tokens. ' +
-  'Locate code with FastPath MCP tools instead: find / impact / memory. ' +
+  'Locate code with FastPath MCP tools instead: find / impact / window / memory. ' +
   'Scoped walks (explicit path, depth <= 1) are allowed.';
 
 const SHELL_DISCOVERY_MESSAGE =
@@ -112,7 +112,23 @@ function substituteListing(workspace: string, path: string): string | null {
     const paths = listIndexedPaths(workspace, path, SUBSTITUTE_PATH_LIMIT);
     if (!paths.length) return null;
     const label = path || 'workspace';
-    return `${label} contains (from FastPath index): ${paths.join(', ')}`;
+    const byDir = new Map<string, string[]>();
+    for (const p of paths) {
+      const slash = p.lastIndexOf('/');
+      const dir = slash >= 0 ? p.slice(0, slash) : '.';
+      const list = byDir.get(dir) ?? [];
+      list.push(p.slice(slash + 1));
+      byDir.set(dir, list);
+    }
+    const groups = [...byDir.entries()]
+      .slice(0, 12)
+      .map(([dir, files]) => `${dir}/: ${files.slice(0, 8).join(', ')}`)
+      .join(' · ');
+    return (
+      `${label} (from FastPath index, grouped): ${groups}. ` +
+      `Indexed: ${paths.join(', ')}. ` +
+      `Use FastPath \`find\` mode=context/search for content — do not re-walk.`
+    );
   } catch {
     return null;
   }
@@ -181,7 +197,7 @@ async function run(): Promise<void> {
     });
     if (seen >= DUPLICATE_READ_WARN_AT) {
       console.error(
-        `FastPath: ${request.path} already read ${seen}x this session — reuse what you have instead of re-reading.`,
+        `FastPath: ${request.path} already read ${seen}x this session — reuse prior context or call FastPath \`window\` for specific lines instead of whole-file re-read.`,
       );
     }
     return;

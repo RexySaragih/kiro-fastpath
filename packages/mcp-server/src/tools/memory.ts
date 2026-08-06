@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { MEMORY_KINDS, type MemoryEntry } from '@fastpath/core';
 import type { FastpathClient } from '../clients/fastpath-client.js';
+import { recordPlainMetric } from '../record-metric.js';
 import { toolErr, toolOk } from '../utils/format.js';
 
 const MEMORY_KIND_ENUM = ['decision', 'fact', 'preference', 'session'] as const;
@@ -84,18 +85,26 @@ export const memoryRecallTool: Tool = {
 export const memoryTool: Tool = {
   name: 'memory',
   description:
-    'Project memory. op=recall past decisions/facts before re-deriving them; op=save one durable line.',
+    'Project memory. op=recall past decisions/facts; op=save one durable line; ' +
+    'op=list recent memories; op=forget by id (text = numeric id).',
   inputSchema: {
     type: 'object',
     properties: {
-      op: { type: 'string', enum: ['recall', 'save'], description: 'Default recall.' },
-      text: { type: 'string', description: 'recall: query. save: the memory line.' },
+      op: {
+        type: 'string',
+        enum: ['recall', 'save', 'list', 'forget'],
+        description: 'Default recall. list ignores text. forget: text = memory id.',
+      },
+      text: {
+        type: 'string',
+        description: 'recall: query. save: the memory line. forget: numeric id. list: unused.',
+      },
       kind: { type: 'string', enum: [...MEMORY_KIND_ENUM], description: 'save only.' },
       tags: { type: 'array', items: { type: 'string' }, description: 'save only.' },
       paths: { type: 'array', items: { type: 'string' }, description: 'save only.' },
-      top_k: { type: 'number', description: 'recall only (default 3).' },
+      top_k: { type: 'number', description: 'recall/list (default 3 / 20).' },
     },
-    required: ['text'],
+    required: [],
     additionalProperties: false,
   },
   annotations: {
@@ -107,18 +116,51 @@ export const memoryTool: Tool = {
 };
 
 const memorySchema = z.object({
-  op: z.enum(['recall', 'save']).optional(),
-  text: z.string().min(1).max(2000),
+  op: z.enum(['recall', 'save', 'list', 'forget']).optional(),
+  text: z.string().max(2000).optional(),
   kind: z.enum(MEMORY_KIND_ENUM).optional(),
   tags: z.array(z.string().max(50)).max(10).optional(),
   paths: z.array(z.string().max(300)).max(10).optional(),
-  top_k: z.number().int().positive().max(10).optional(),
+  top_k: z.number().int().positive().max(100).optional(),
 });
 
 export async function handleMemory(client: FastpathClient, args: unknown) {
   const parsed = memorySchema.safeParse(args);
   if (!parsed.success) return toolErr(parsed.error.message);
   const { op = 'recall', text, kind, tags, paths, top_k } = parsed.data;
+
+  if (op === 'list') {
+    try {
+      const memories = client.memoryList(top_k ?? 20);
+      const result = toolOk(formatMemories(memories, '## memory list'));
+      recordPlainMetric('memory', result, memories.length);
+      return result;
+    } catch (err) {
+      const result = toolErr(client.wrapError(err));
+      recordPlainMetric('memory', result);
+      return result;
+    }
+  }
+
+  if (op === 'forget') {
+    const id = Number(text);
+    if (!Number.isFinite(id) || id <= 0) {
+      return toolErr('forget requires text = numeric memory id');
+    }
+    try {
+      const ok = client.memoryForget(id);
+      const result = toolOk(ok ? `Forgot memory #${id}` : `No memory #${id}`);
+      recordPlainMetric('memory', result);
+      return result;
+    } catch (err) {
+      const result = toolErr(client.wrapError(err));
+      recordPlainMetric('memory', result);
+      return result;
+    }
+  }
+
+  if (!text?.trim()) return toolErr('text is required for recall/save');
+
   if (op === 'save') {
     return handleMemorySave(client, { kind: kind ?? 'fact', text, tags, paths });
   }
@@ -153,9 +195,13 @@ export async function handleMemorySave(client: FastpathClient, args: unknown) {
   if (!parsed.success) return toolErr(parsed.error.message);
   try {
     const saved = await client.memorySave(parsed.data);
-    return toolOk(`Saved memory #${saved.id} (${saved.kind}): ${saved.text}`);
+    const result = toolOk(`Saved memory #${saved.id} (${saved.kind}): ${saved.text}`);
+    recordPlainMetric('memory', result);
+    return result;
   } catch (err) {
-    return toolErr(client.wrapError(err));
+    const result = toolErr(client.wrapError(err));
+    recordPlainMetric('memory', result);
+    return result;
   }
 }
 
@@ -164,9 +210,15 @@ export async function handleMemoryRecall(client: FastpathClient, args: unknown) 
   if (!parsed.success) return toolErr(parsed.error.message);
   try {
     const memories = await client.memoryRecall(parsed.data.query, parsed.data.top_k);
-    return toolOk(formatMemories(memories, `## memory_recall: ${parsed.data.query}`));
+    const result = toolOk(
+      formatMemories(memories, `## memory_recall: ${parsed.data.query}`),
+    );
+    recordPlainMetric('memory', result, memories.length);
+    return result;
   } catch (err) {
-    return toolErr(client.wrapError(err));
+    const result = toolErr(client.wrapError(err));
+    recordPlainMetric('memory', result);
+    return result;
   }
 }
 

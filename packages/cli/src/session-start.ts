@@ -17,11 +17,14 @@ import {
   readStdinText,
   recordHeartbeat,
   recordHookPayload,
+  sessionIdFromPayload,
   withTimeout,
   writeContext,
   workspaceFromPayload,
 } from './hook-util.js';
-import { appendMetric } from './metrics.js';
+import { CAVEMAN_OUTPUT_NUDGE, PONYTAIL_CODE_NUDGE } from './agents-md.js';
+import { appendMetric, resetLedgerState } from './metrics.js';
+import { readTurnState } from './state.js';
 
 /** SessionStart is off the prompt hot path — allow a cold MiniLM load + git delta. */
 const WARM_BUDGET_MS = 15_000;
@@ -72,6 +75,7 @@ async function run(): Promise<void> {
   const payload = parseHookPayload(raw);
   recordHookPayload('session-start', raw, payload);
   const workspace = workspaceFromPayload(payload);
+  const sessionId = sessionIdFromPayload(payload);
   const started = Date.now();
 
   // Warm both models here — a cold reranker load would otherwise blow the
@@ -82,6 +86,7 @@ async function run(): Promise<void> {
   const gitDelta = await catchUpGitDelta(workspace);
   const stats = getIndexStats(workspace);
 
+  resetLedgerState();
   appendMetric({
     type: 'session-start',
     at: new Date().toISOString(),
@@ -91,13 +96,16 @@ async function run(): Promise<void> {
 
   if (!stats.files) {
     writeContext(
-      `## FastPath session\n\nIndex empty at \`${workspace}\`. Run \`fastpath index\` before coding.\n`,
+      `## FastPath session\n\n${CAVEMAN_OUTPUT_NUDGE}\n${PONYTAIL_CODE_NUDGE}\n\nIndex empty at \`${workspace}\`. Ask the user to run \`fastpath index\` before coding.\n`,
     );
     return;
   }
 
   const lines = [
     '## FastPath session (auto-injected)',
+    '',
+    CAVEMAN_OUTPUT_NUDGE,
+    PONYTAIL_CODE_NUDGE,
     '',
     `Workspace: \`${workspace}\` · indexed files=${stats.files} symbols=${stats.symbols} · indexedAt=${stats.indexedAt}`,
   ];
@@ -115,9 +123,22 @@ async function run(): Promise<void> {
     lines.push('', 'Recent project memory:', ...recent);
   }
 
+  try {
+    const turn = readTurnState(workspace, sessionId);
+    if (turn.contextSummary) {
+      lines.push('', 'Prior handoff:', `- ${turn.contextSummary}`);
+      if (turn.accessedFiles?.length) {
+        lines.push(`- files: ${turn.accessedFiles.join(', ')}`);
+      }
+    }
+  } catch {
+    /* optional */
+  }
+
   lines.push(
     '',
-    'Locate code with FastPath (injected context or MCP tools: search / symbol / grep_fast / context_for_task / impact).',
+    'Locate code with FastPath (injected context or MCP: find / impact / window / memory).',
+    'Default agent: verify with shell OK. Scout ≤5 files (no shell). Architect 6+ / design.',
     'Do NOT walk the repo with listDirectory/glob.',
   );
 

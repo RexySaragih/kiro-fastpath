@@ -11,6 +11,7 @@ import {
   IndexLimits,
   type SearchHit,
 } from '../types.js';
+import { enrichHitsWithWindows } from '../window.js';
 
 function intersectSets(sets: Set<string>[]): Set<string> {
   if (!sets.length) return new Set();
@@ -113,8 +114,10 @@ export function grepFast(
         score: 1,
         snippet: snippetAround(content, i + 1, 2),
       });
-      if (hits.length >= topK) return hits;
+      if (hits.length >= topK) {
+        return enrichHitsWithWindows(workspace, hits);
+      }
     }
   }
-  return hits;
+  return enrichHitsWithWindows(workspace, hits);
 }

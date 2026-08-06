@@ -1,13 +1,17 @@
 import {
   contextForTask,
   DEFAULT_TOP_K,
+  forgetMemory,
   formatImpact,
   grepFast,
   impactForSymbol,
+  listMemories,
   lookupSymbol,
+  readWindow,
   recallMemories,
   saveMemory,
   searchIndex,
+  type CodeWindow,
   type MemoryEntry,
   type SaveMemoryInput,
   type SearchHit,
@@ -49,12 +53,24 @@ export class FastpathClient {
     );
   }
 
+  window(path: string, startLine: number, endLine: number): CodeWindow {
+    return readWindow(this.workspace, path, startLine, endLine);
+  }
+
   async memorySave(input: SaveMemoryInput): Promise<MemoryEntry> {
     return saveMemory(this.workspace, input);
   }
 
   async memoryRecall(query: string, topK?: number): Promise<MemoryEntry[]> {
     return recallMemories(this.workspace, query, topK);
+  }
+
+  memoryList(limit?: number): MemoryEntry[] {
+    return listMemories(this.workspace, limit);
+  }
+
+  memoryForget(id: number): boolean {
+    return forgetMemory(this.workspace, id);
   }
 
   wrapError(err: unknown): string {

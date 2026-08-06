@@ -3,7 +3,15 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, cpSync, rmSync, readFileSync, existsSync } from 'node:fs';
+import {
+  mkdtempSync,
+  cpSync,
+  rmSync,
+  readFileSync,
+  existsSync,
+  writeFileSync,
+  mkdirSync,
+} from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -29,9 +37,51 @@ test('Viz: snapshot + HTML dashboard from fixture index', async () => {
   );
 
   const dir = mkdtempSync(join(tmpdir(), 'fastpath-viz-'));
+  const userDir = mkdtempSync(join(tmpdir(), 'fastpath-viz-user-'));
   try {
     cpSync(join(root, 'fixtures/sample-src'), join(dir, 'src'), { recursive: true });
     await indexWorkspace(dir);
+
+    // Given: synthetic inject + blocked walk metrics for the token ledger
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(
+      join(userDir, 'metrics.jsonl'),
+      [
+        JSON.stringify({
+          type: 'inject',
+          at: new Date().toISOString(),
+          mode: 'on',
+          dirty: 0,
+          deltaMs: 10,
+          retrieveMs: 20,
+          hits: 2,
+          injectedTokens: 100,
+          windowVsFileTokens: 400,
+          discoveryTokens: 200,
+          timedOutDelta: false,
+          timedOutRetrieve: false,
+        }),
+        JSON.stringify({
+          type: 'mcp',
+          at: new Date().toISOString(),
+          tool: 'window',
+          ok: true,
+          hits: 1,
+          responseTokens: 40,
+          windowVsFileTokens: 300,
+          discoveryTokens: 0,
+          paths: ['src/auth.ts'],
+        }),
+        JSON.stringify({
+          type: 'guardrail',
+          at: new Date().toISOString(),
+          tool: 'listDirectory',
+          blocked: true,
+          tokensAvoided: 1200,
+        }),
+      ].join('\n') + '\n',
+    );
+    process.env.FASTPATH_USER_DIR = userDir;
 
     const snap = collectVizSnapshot(dir);
     assert.ok(snap.summary.files > 0);
@@ -41,19 +91,46 @@ test('Viz: snapshot + HTML dashboard from fixture index', async () => {
     assert.equal(snap.workspace, dir);
 
     const page = buildVizPageData(dir);
+    assert.equal(page.metrics.injectedTokens, 100);
+    assert.equal(page.metrics.mcpResponseTokens, 40);
+    assert.equal(page.metrics.spentTokens, 140);
+    assert.equal(page.metrics.avoidedWindowVsFile, 700);
+    assert.equal(page.metrics.avoidedDiscovery, 200);
+    assert.equal(page.metrics.avoidedBlockedWalk, 1200);
+    assert.equal(page.metrics.tokensAvoided, 2100);
+    assert.equal(page.metrics.netTokens, 1960);
+    assert.equal(page.metrics.walksBlocked, 1);
+    assert.equal(page.metrics.mcpOk, 1);
+
     const html = renderVizHtml(page);
-    assert.match(html, /FastPath index/);
-    assert.match(html, /Files by folder/);
-    assert.match(html, /Symbol kinds/);
-    assert.match(html, /graph-shell/);
-    assert.match(html, /graph-panel/);
-    assert.match(html, /requestAnimationFrame/);
-    assert.match(html, /Fullscreen/);
-    assert.match(html, /#e8a54b/);
-    assert.match(html, /class="page"/);
-    assert.match(html, /section class="panel"/);
-    assert.match(html, /lol-dot|donut|hit-ring/);
-    assert.doesNotMatch(html, /#c026d3/);
+    // Verify presence without printing entire HTML on fail
+    const checks = [
+      /FastPath index/,
+      /Files by folder/,
+      /Symbol kinds/,
+      /graph-shell/,
+      /graph-panel/,
+      /requestAnimationFrame/,
+      /Fullscreen/,
+      /#e8a54b/,
+      /class="page"/,
+      /section class="panel"/,
+      /donut|hit-ring/,
+      />Injected</,
+      />MCP out</,
+      /Avoided ≈/,
+      /Net ≈/,
+      /Window vs file ≈/,
+      /Injected\/MCP out = measured/,
+      /MCP path credited/,
+      />100</,
+      />2\.1k</,
+      />2\.0k</,
+    ];
+    for (const re of checks) {
+      assert.ok(re.test(html), `Missing pattern: ${re}`);
+    }
+    assert.ok(!/#c026d3/.test(html), 'Should not contain #c026d3');
     assert.ok(Array.isArray(snap.callGraph.nodes));
     if (snap.callGraph.nodes.length) {
       const n = snap.callGraph.nodes[0];
@@ -68,15 +145,18 @@ test('Viz: snapshot + HTML dashboard from fixture index', async () => {
     const result = spawnSync(
       process.execPath,
       [cli, 'viz', dir, '--no-open', '--out', out],
-      { encoding: 'utf8', env },
+      { encoding: 'utf8', env: { ...env, FASTPATH_USER_DIR: userDir } },
     );
     assert.equal(result.status, 0, result.stderr + result.stdout);
     assert.ok(existsSync(out));
     const written = readFileSync(out, 'utf8');
     assert.match(written, /Heaviest files/);
+    assert.match(written, /Avoided ≈/);
     assert.match(result.stdout, /FastPath viz/);
   } finally {
+    delete process.env.FASTPATH_USER_DIR;
     rmSync(dir, { recursive: true, force: true });
+    rmSync(userDir, { recursive: true, force: true });
   }
 });
 

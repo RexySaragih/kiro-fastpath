@@ -160,12 +160,22 @@ test('Install: all event hooks + Scout/Architect wired with no placeholders', ()
 
     const scout = readFileSync(join(dir, '.kiro/agents/Scout.md'), 'utf8');
     assert.match(scout, /name:\s*Scout/);
-    assert.match(scout, /claude-sonnet-5/);
+    assert.match(scout, /claude-sonnet-4\.5/);
     assert.doesNotMatch(scout, /capability:\s*write\b/);
     assert.doesNotMatch(scout, /__FASTPATH_/);
-    // 3-tool surface (find / impact / memory) — collapsed from the legacy 7.
+    // 4-tool surface (find / impact / window / memory) + caveman wiring.
     assert.match(scout, /- find\n/);
+    assert.match(scout, /- window\n/);
     assert.match(scout, /- memory\n/);
+    assert.match(scout, /\.kiro\/steering\/\*\*\/\*\.md/);
+    assert.match(scout, /skill:\/\/\.kiro\/skills\/caveman\/SKILL\.md/);
+    assert.match(scout, /skill:\/\/\.kiro\/skills\/ponytail\/SKILL\.md/);
+    assert.match(scout, /OUTPUT MODE = caveman full/);
+    assert.match(scout, /CODE MODE = ponytail full/);
+    assert.ok(existsSync(join(dir, '.kiro/steering/caveman.md')));
+    assert.ok(existsSync(join(dir, '.kiro/skills/caveman/SKILL.md')));
+    assert.ok(existsSync(join(dir, '.kiro/steering/ponytail.md')));
+    assert.ok(existsSync(join(dir, '.kiro/skills/ponytail/SKILL.md')));
     assert.doesNotMatch(scout, /memory_recall/);
     assert.ok(!existsSync(join(dir, '.kiro/agents/Marshal.md')));
 
@@ -199,7 +209,7 @@ test('Guardrail: warn logs but allows; block rejects with exit 2; auto blocks af
     const blocked = run('block');
     assert.equal(blocked.status, 2);
     assert.match(blocked.stderr, /FastPath guardrail/);
-    assert.match(blocked.stderr, /find \/ impact \/ memory/);
+    assert.match(blocked.stderr, /find \/ impact \/ window \/ memory/);
 
     assert.equal(run('off').status, 0);
 
@@ -293,7 +303,7 @@ test('Prompt inject: routing hint appears for multi-file asks, memories injected
       }),
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /Routing: multi-file scope likely/);
+    assert.match(result.stdout, /Routing advisor:.*Architect/);
     assert.match(result.stdout, /FastPath memory/);
     assert.match(result.stdout, /validateJwt/);
   } finally {

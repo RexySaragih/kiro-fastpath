@@ -1,4 +1,4 @@
-# FastPath MCP — Tool Spec (v0.3)
+# FastPath MCP — Tool Spec (v0.4)
 
 ## Agent jobs
 
@@ -13,8 +13,8 @@ Give Kiro a warm local hybrid index so agents **retrieve a few chunks then act**
 | Capabilities | tools only |
 | Posture | read-only for code (index writes via CLI); `memory` action=save writes to the local `.fastpath` memory store only |
 | Auth | none (local filesystem; workspace via `FASTPATH_WORKSPACE`) |
-| Output | compact markdown |
-| Scope | 3 advertised tools (`find`, `impact`, `memory`); legacy names remain callable |
+| Output | compact markdown with focused code windows (`path:start-end` + body) |
+| Scope | 4 advertised tools (`find`, `impact`, `window`, `memory`); legacy names remain callable |
 | SDK | `@modelcontextprotocol/sdk@1.30.0` |
 
 ## credentials
@@ -44,16 +44,20 @@ Do not store secrets in project `.env` — use mcp.json `env` if configuration i
 | Starter files for a coding task | `find` mode=`context` |
 | Exact text / regex in source lines | `find` mode=`grep` (content only; use `path_prefix` for dirs) |
 | Callers / importers / rename blast radius | `impact` |
+| More lines of a known path | `window` |
 | Save / recall / list / forget a note | `memory` |
 
 ### 1. `find`
-Unified locate. Params: `query`, `mode?` (`search`\|`symbol`\|`grep`\|`context`), `kind?`, `top_k?`, `path_prefix?`. Annotations: readOnly, idempotent, not openWorld, not destructive.
+Unified locate. Returns focused code windows (`path:start-end` + body). Params: `query`, `mode?` (`search`\|`symbol`\|`grep`\|`context`), `kind?`, `top_k?`, `path_prefix?`. Annotations: readOnly, idempotent, not openWorld, not destructive.
 
 ### 2. `impact`
-Definitions + callers + importers + refs for a **known** symbol. Params: `name`, `depth?` (1–3), `top_k?`. Same annotations.
+Definitions + callers + importers + refs for a **known** symbol (definitions/callers include windows). Params: `name`, `depth?` (1–3), `top_k?`. Same annotations.
 
-### 3. `memory`
-Persist or recall project memories. Params: `action` (`save`\|`recall`\|`list`\|`forget`), plus action-specific fields. Save is NOT readOnly (local store write).
+### 3. `window`
+Read a line-range from a workspace file. Params: `path`, `start_line`, `end_line`. Prefer over whole-file host reads. Same annotations.
+
+### 4. `memory`
+Persist or recall project memories. Params: `op` (`save`|`recall`|`list`|`forget`), plus op-specific fields (`text` required for recall/save/forget). Save is NOT readOnly (local store write). list returns recent memories; forget needs numeric id in `text`.
 
 Legacy aliases (`search`, `symbol`, `context_for_task`, `grep_fast`, `memory_save`, `memory_recall`) remain callable for older agent profiles but are not listed in `ListTools`.
 

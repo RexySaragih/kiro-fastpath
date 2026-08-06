@@ -26,8 +26,9 @@ import {
   handleSearch,
   handleSymbol,
   impactTool,
-  resolveWorkspace,
 } from './tools/search.js';
+import { handleWindow, windowTool } from './tools/window.js';
+import { resolveWorkspace } from './workspace.js';
 
 const SERVER_NAME = 'fastpath-mcp';
 
@@ -57,9 +58,9 @@ function logTool(tool: string, status: 'ok' | 'error', durationMs: number): void
 async function start(): Promise<void> {
   warnIfRepoDotEnvPresent();
   const client = new FastpathClient(resolveWorkspace());
-  // Advertised surface is 3 tools; the legacy 7 names stay callable below so
+  // Advertised surface is 4 tools; legacy names stay callable below so
   // older agent profiles keep working without paying for extra schemas.
-  const tools = [findTool, impactTool, memoryTool];
+  const tools = [findTool, impactTool, windowTool, memoryTool];
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
 
@@ -75,6 +76,9 @@ async function start(): Promise<void> {
           break;
         case 'memory':
           result = await handleMemory(client, args);
+          break;
+        case 'window':
+          result = handleWindow(args);
           break;
         case 'search':
           result = await handleSearch(client, args);
