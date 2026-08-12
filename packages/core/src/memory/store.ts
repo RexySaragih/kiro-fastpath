@@ -366,9 +366,10 @@ export async function recallMemories(
       const paths = row.paths ? row.paths.split(',').filter(Boolean) : [];
       const inScope = scope.size > 0 && paths.some((p) => scope.has(p));
       if (inScope) score *= SCOPE_BOOST;
-      // Off-scope memories need to clear a higher bar so a backend decision
-      // stops surfacing on unrelated frontend prompts.
-      else if (scope.size > 0 && score < OFF_SCOPE_FLOOR) continue;
+      // Only apply the off-scope floor to memories that explicitly declare
+      // paths — a memory with no paths is workspace-global (e.g. auto session
+      // summaries) and should not be penalised for being "off-scope".
+      else if (scope.size > 0 && paths.length > 0 && score < OFF_SCOPE_FLOOR) continue;
 
       if (score <= 0) continue;
       scored.push({ row, score });

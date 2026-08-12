@@ -81,6 +81,15 @@ test('install-kiro writes valid hook JSON and wired agents', () => {
     assert.match(hook.hooks[0].action.command, /prompt-inject/);
     assert.match(hook.hooks[0].action.command, /FASTPATH_HOME=/);
     assert.equal(readFileSync(hookPath, 'utf8').includes('__FASTPATH_'), false);
+    const modeHooks = hook.hooks.filter(
+      (entry) =>
+        entry.trigger === 'UserPromptSubmit' || entry.trigger === 'SessionStart',
+    );
+    assert.equal(modeHooks.length, 2);
+    for (const entry of modeHooks) {
+      assert.match(entry.description, /Caveman/i);
+      assert.match(entry.description, /Ponytail/i);
+    }
 
     const scout = readFileSync(join(dir, '.kiro/agents/Scout.md'), 'utf8');
     assert.match(scout, /@fastpath/);
@@ -102,18 +111,24 @@ test('install-kiro writes valid hook JSON and wired agents', () => {
     assert.match(agentsMd, /<!-- fastpath:agents -->/);
     assert.match(agentsMd, /OUTPUT MODE = caveman full/);
     assert.match(agentsMd, /CODE MODE = ponytail full/);
+    assert.ok(existsSync(join(dir, '.kiro/steering/caveman.md')));
     assert.ok(existsSync(join(dir, '.kiro/steering/ponytail.md')));
+    assert.ok(existsSync(join(dir, '.kiro/skills/caveman/SKILL.md')));
     assert.ok(existsSync(join(dir, '.kiro/skills/ponytail/SKILL.md')));
+    assert.match(scout, /skill:\/\/\.kiro\/skills\/caveman\/SKILL\.md/);
     assert.match(scout, /skill:\/\/\.kiro\/skills\/ponytail\/SKILL\.md/);
-    assert.match(scout, /CODE MODE = ponytail full/);
+    assert.match(scout, /OUTPUT MODE = caveman full.*MANDATORY/i);
+    assert.match(scout, /CODE MODE = ponytail full.*MANDATORY/i);
 
     const architect = readFileSync(join(dir, '.kiro/agents/Architect.md'), 'utf8');
     assert.doesNotMatch(architect, /\ballowedTools\b/);
     assert.doesNotMatch(architect, /\bincludeMcpJson\b/);
     assert.match(architect, /name:\s*Architect/);
     assert.match(architect, /FASTPATH_HOME:/);
+    assert.match(architect, /skill:\/\/\.kiro\/skills\/caveman\/SKILL\.md/);
     assert.match(architect, /skill:\/\/\.kiro\/skills\/ponytail\/SKILL\.md/);
-    assert.match(architect, /CODE MODE = ponytail full/);
+    assert.match(architect, /OUTPUT MODE = caveman full.*MANDATORY/i);
+    assert.match(architect, /CODE MODE = ponytail full.*MANDATORY/i);
     assert.equal(existsSync(join(dir, '.kiro/agents/surgical.md')), false);
 
     const mcp = JSON.parse(readFileSync(join(dir, '.kiro/settings/mcp.json'), 'utf8'));

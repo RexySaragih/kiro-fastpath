@@ -189,6 +189,7 @@ async function run(): Promise<void> {
       deltaMs: number;
       retrieveMs: number;
       hits: number;
+      noPrompt?: boolean;
       timedOutDelta: boolean;
       timedOutRetrieve: boolean;
       windowVsFileTokens?: number;
@@ -203,6 +204,7 @@ async function run(): Promise<void> {
       session,
       agent,
       mode,
+      workspace,
       injectedTokens: payloadBody ? estimateTokens(payloadBody) : 0,
       windowVsFileTokens: mode === 'off' ? 0 : (stats.windowVsFileTokens ?? 0),
       discoveryTokens: mode === 'off' ? 0 : (stats.discoveryTokens ?? 0),
@@ -210,6 +212,7 @@ async function run(): Promise<void> {
       deltaMs: stats.deltaMs,
       retrieveMs: stats.retrieveMs,
       hits: stats.hits,
+      noPrompt: stats.noPrompt,
       timedOutDelta: stats.timedOutDelta,
       timedOutRetrieve: stats.timedOutRetrieve,
     });
@@ -223,6 +226,7 @@ async function run(): Promise<void> {
       deltaMs: 0,
       retrieveMs: 0,
       hits: 0,
+      noPrompt: true,
       timedOutDelta: false,
       timedOutRetrieve: false,
     });

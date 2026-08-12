@@ -3,7 +3,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { HARD_MAX_TOP_K, type SearchHit } from '@fastpath/core';
 import type { FastpathClient } from '../clients/fastpath-client.js';
 import { recordLocateMetric, recordPlainMetric } from '../record-metric.js';
-import { formatHits, toolErr, toolOk } from '../utils/format.js';
+import { formatHits, toolErr, toolOk, zodErr } from '../utils/format.js';
 
 const READ_ONLY = {
   readOnlyHint: true,
@@ -212,24 +212,33 @@ const findSchema = z.object({
 
 export async function handleFind(client: FastpathClient, args: unknown) {
   const parsed = findSchema.safeParse(args);
-  if (!parsed.success) return toolErr(parsed.error.message);
+  if (!parsed.success) return toolErr(zodErr(parsed.error));
   const { query, mode = 'search', kind, top_k, path_prefix } = parsed.data;
   switch (mode) {
     case 'symbol':
       return runHits(client, 'find', `## symbol: ${query}`, () =>
         client.symbol(query, kind, top_k),
+        'No symbol matched. Try a shorter exact identifier (e.g. `AuthService`, not `auth service`). ' +
+        'Use mode=search for concepts, or mode=grep for a literal string in file contents.',
       );
     case 'grep':
       return runHits(client, 'find', `## grep: ${query}`, () =>
         client.grep(query, top_k, path_prefix),
+        'No grep match. FastPath grep matches a single literal string or simple regex — ' +
+        'it does NOT support `|` alternation or `\\|` OR syntax. ' +
+        'Call `find` once per term, or use mode=search/symbol for multi-term lookups.',
       );
     case 'context':
       return runHits(client, 'find', '## context', () =>
         client.context(query, top_k),
+        'No context found for this task description. ' +
+        'Try mode=symbol with an identifier from the task, or mode=search with a shorter concept phrase.',
       );
     default:
       return runHits(client, 'find', `## search: ${query}`, () =>
         client.search(query, top_k, path_prefix),
+        'No semantic match. Try a shorter concept (e.g. `inject hit rate` not a full sentence), ' +
+        'or switch to mode=symbol for a known identifier, mode=grep for a literal string.',
       );
   }
 }
@@ -282,14 +291,20 @@ async function runHits(
   tool: string,
   title: string,
   fn: () => SearchHit[] | Promise<SearchHit[]>,
+  noMatchHint?: string,
 ) {
   try {
     const hits = await fn();
-    const result = toolOk(formatHits(hits, title));
+    const result = toolOk(formatHits(hits, title, noMatchHint));
     recordLocateMetric(tool, result, hits);
     return result;
   } catch (err) {
-    const result = toolErr(client.wrapError(err));
+    const msg = client.wrapError(err);
+    const result = toolErr(
+      `${tool} failed: ${msg}. ` +
+      'If the index is missing run `fastpath index`. ' +
+      'If the query is a bad regex (grep mode), simplify it to a plain literal.',
+    );
     recordLocateMetric(tool, result, []);
     return result;
   }
@@ -297,39 +312,45 @@ async function runHits(
 
 export async function handleSearch(client: FastpathClient, args: unknown) {
   const parsed = searchSchema.safeParse(args);
-  if (!parsed.success) return toolErr(parsed.error.message);
+  if (!parsed.success) return toolErr(zodErr(parsed.error));
   return runHits(client, 'search', `## search: ${parsed.data.query}`, () =>
     client.search(parsed.data.query, parsed.data.top_k, parsed.data.path_prefix),
+    'No semantic match. Try a shorter concept phrase, or switch to mode=symbol for a known identifier, mode=grep for a literal string.',
   );
 }
 
 export async function handleSymbol(client: FastpathClient, args: unknown) {
   const parsed = symbolSchema.safeParse(args);
-  if (!parsed.success) return toolErr(parsed.error.message);
+  if (!parsed.success) return toolErr(zodErr(parsed.error));
   return runHits(client, 'symbol', `## symbol: ${parsed.data.name}`, () =>
     client.symbol(parsed.data.name, parsed.data.kind, parsed.data.top_k),
+    'No symbol matched. Use the exact identifier (e.g. `AuthService`, not `auth service`). ' +
+    'Use search for concepts, or grep for a literal string.',
   );
 }
 
 export async function handleContextForTask(client: FastpathClient, args: unknown) {
   const parsed = contextSchema.safeParse(args);
-  if (!parsed.success) return toolErr(parsed.error.message);
+  if (!parsed.success) return toolErr(zodErr(parsed.error));
   return runHits(client, 'context_for_task', '## context_for_task', () =>
     client.context(parsed.data.task, parsed.data.max_chunks),
+    'No context found. Try mode=symbol with a known identifier, or mode=search with a shorter concept phrase.',
   );
 }
 
 export async function handleGrepFast(client: FastpathClient, args: unknown) {
   const parsed = grepSchema.safeParse(args);
-  if (!parsed.success) return toolErr(parsed.error.message);
+  if (!parsed.success) return toolErr(zodErr(parsed.error));
   return runHits(client, 'grep_fast', `## grep_fast: ${parsed.data.pattern}`, () =>
     client.grep(parsed.data.pattern, parsed.data.top_k, parsed.data.path_prefix),
+    'No grep match. Use a single literal string or simple regex — `|` alternation is not supported. ' +
+    'Call grep once per term, or use mode=symbol/search for multi-term lookups.',
   );
 }
 
 export async function handleImpact(client: FastpathClient, args: unknown) {
   const parsed = impactSchema.safeParse(args);
-  if (!parsed.success) return toolErr(parsed.error.message);
+  if (!parsed.success) return toolErr(zodErr(parsed.error));
   try {
     const result = toolOk(
       client.impact(parsed.data.name, parsed.data.depth, parsed.data.top_k),
@@ -337,7 +358,11 @@ export async function handleImpact(client: FastpathClient, args: unknown) {
     recordPlainMetric('impact', result);
     return result;
   } catch (err) {
-    const result = toolErr(client.wrapError(err));
+    const result = toolErr(
+      `impact failed: ${client.wrapError(err)}. ` +
+      'Confirm the symbol exists first with find mode=symbol. ' +
+      'If the index is missing run `fastpath index`.',
+    );
     recordPlainMetric('impact', result);
     return result;
   }

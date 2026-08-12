@@ -43,10 +43,14 @@ function histogram(values: number[]): string {
     .join(' ');
 }
 
-export function summarizeMetrics(events: MetricEvent[]): string {
-  const injects = events.filter(
+export function summarizeMetrics(events: MetricEvent[], workspace?: string): string {
+  const allInjects = events.filter(
     (e): e is Extract<MetricEvent, { type: 'inject' }> => e.type === 'inject',
   );
+  // Scope to workspace when provided; legacy events without workspace field pass through.
+  const injects = workspace
+    ? allInjects.filter((i) => !i.workspace || i.workspace === workspace)
+    : allInjects;
   const indexes = events.filter((e) => e.type === 'index');
   const doctors = events.filter((e) => e.type === 'doctor');
   const guards = events.filter(
@@ -60,16 +64,22 @@ export function summarizeMetrics(events: MetricEvent[]): string {
       ` index=${indexes.length} doctor=${doctors.length} guardrail=${guards.length}`,
   ];
   if (injects.length) {
-    const withHits = injects.filter((i) => i.hits > 0).length;
+    const retrievalInjects = injects.filter((i) => !i.noPrompt);
+    const withHits = retrievalInjects.filter((i) => i.hits > 0).length;
     const deltas = [...injects.map((i) => i.deltaMs)].sort((a, b) => a - b);
     const retrieves = [...injects.map((i) => i.retrieveMs)].sort((a, b) => a - b);
     const deltaTimeouts = injects.filter((i) => i.timedOutDelta).length;
     const retrieveTimeouts = injects.filter((i) => i.timedOutRetrieve).length;
-    lines.push(
-      `inject hitRate=${((withHits / injects.length) * 100).toFixed(1)}%` +
-        ` deltaMs p50=${percentile(deltas, 50)} p95=${percentile(deltas, 95)}` +
-        ` retrieveMs p50=${percentile(retrieves, 50)} p95=${percentile(retrieves, 95)}`,
-    );
+    if (retrievalInjects.length) {
+      lines.push(
+        `inject hitRate=${((withHits / retrievalInjects.length) * 100).toFixed(1)}%` +
+          ` (${retrievalInjects.length} retrieval turns, ${injects.length - retrievalInjects.length} no-prompt)` +
+          ` deltaMs p50=${percentile(deltas, 50)} p95=${percentile(deltas, 95)}` +
+          ` retrieveMs p50=${percentile(retrieves, 50)} p95=${percentile(retrieves, 95)}`,
+      );
+    } else {
+      lines.push(`inject turns=${injects.length} (all no-prompt, no retrieval attempts yet)`);
+    }
     lines.push(`inject hitDist=[${histogram(injects.map((i) => i.hits))}]`);
     lines.push(
       `inject timeouts delta=${deltaTimeouts} retrieve=${retrieveTimeouts} total=${deltaTimeouts + retrieveTimeouts}`,

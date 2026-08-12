@@ -3,7 +3,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { MEMORY_KINDS, type MemoryEntry } from '@fastpath/core';
 import type { FastpathClient } from '../clients/fastpath-client.js';
 import { recordPlainMetric } from '../record-metric.js';
-import { toolErr, toolOk } from '../utils/format.js';
+import { toolErr, toolOk, zodErr } from '../utils/format.js';
 
 const MEMORY_KIND_ENUM = ['decision', 'fact', 'preference', 'session'] as const;
 
@@ -126,7 +126,7 @@ const memorySchema = z.object({
 
 export async function handleMemory(client: FastpathClient, args: unknown) {
   const parsed = memorySchema.safeParse(args);
-  if (!parsed.success) return toolErr(parsed.error.message);
+  if (!parsed.success) return toolErr(zodErr(parsed.error));
   const { op = 'recall', text, kind, tags, paths, top_k } = parsed.data;
 
   if (op === 'list') {
@@ -145,11 +145,14 @@ export async function handleMemory(client: FastpathClient, args: unknown) {
   if (op === 'forget') {
     const id = Number(text);
     if (!Number.isFinite(id) || id <= 0) {
-      return toolErr('forget requires text = numeric memory id');
+      return toolErr(
+        'forget requires text = numeric memory id (e.g. text="42"). ' +
+        'Call op=list first to see saved memories and their ids.',
+      );
     }
     try {
       const ok = client.memoryForget(id);
-      const result = toolOk(ok ? `Forgot memory #${id}` : `No memory #${id}`);
+      const result = toolOk(ok ? `Forgot memory #${id}` : `No memory #${id} — call op=list to see valid ids.`);
       recordPlainMetric('memory', result);
       return result;
     } catch (err) {
@@ -159,7 +162,13 @@ export async function handleMemory(client: FastpathClient, args: unknown) {
     }
   }
 
-  if (!text?.trim()) return toolErr('text is required for recall/save');
+  if (!text?.trim()) {
+    return toolErr(
+      op === 'save'
+        ? 'save requires text = the memory statement to store (1–2 sentences).'
+        : 'recall requires text = your query string (e.g. "auth token expiry").',
+    );
+  }
 
   if (op === 'save') {
     return handleMemorySave(client, { kind: kind ?? 'fact', text, tags, paths });
@@ -180,7 +189,7 @@ const recallSchema = z.object({
 });
 
 export function formatMemories(memories: MemoryEntry[], title: string): string {
-  if (!memories.length) return `${title}\n\n(no memories found)`;
+  if (!memories.length) return `${title}\n\n(no memories saved yet — use op=save to store decisions/facts/preferences)`;
   const lines = [title, ''];
   for (const m of memories) {
     const paths = m.paths.length ? ` — \`${m.paths.join('`, `')}\`` : '';
@@ -192,7 +201,7 @@ export function formatMemories(memories: MemoryEntry[], title: string): string {
 
 export async function handleMemorySave(client: FastpathClient, args: unknown) {
   const parsed = saveSchema.safeParse(args);
-  if (!parsed.success) return toolErr(parsed.error.message);
+  if (!parsed.success) return toolErr(zodErr(parsed.error));
   try {
     const saved = await client.memorySave(parsed.data);
     const result = toolOk(`Saved memory #${saved.id} (${saved.kind}): ${saved.text}`);
@@ -207,7 +216,7 @@ export async function handleMemorySave(client: FastpathClient, args: unknown) {
 
 export async function handleMemoryRecall(client: FastpathClient, args: unknown) {
   const parsed = recallSchema.safeParse(args);
-  if (!parsed.success) return toolErr(parsed.error.message);
+  if (!parsed.success) return toolErr(zodErr(parsed.error));
   try {
     const memories = await client.memoryRecall(parsed.data.query, parsed.data.top_k);
     const result = toolOk(

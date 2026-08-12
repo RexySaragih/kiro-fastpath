@@ -999,9 +999,10 @@ async function main(): Promise<void> {
     case 'metrics': {
       const summary = takeFlag(rest, '--summary');
       const tokens = takeFlag(summary.args, '--tokens');
+      const ws = workspaceFromArgs(tokens.args);
       const events = readMetrics();
       if (tokens.set) console.log(JSON.stringify(tokenLedger(events), null, 2));
-      else if (summary.set) console.log(summarizeMetrics(events));
+      else if (summary.set) console.log(summarizeMetrics(events, ws));
       else console.log(JSON.stringify(events, null, 2));
       break;
     }

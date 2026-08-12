@@ -7,10 +7,17 @@ export type MetricEvent =
       session?: string;
       agent?: string;
       mode?: InjectMode;
+      /** Workspace path this inject was for — used to scope per-project hit rate. */
+      workspace?: string;
       dirty: number;
       deltaMs: number;
       retrieveMs: number;
       hits: number;
+      /**
+       * When true this was a non-prompt housekeeping fire (no user query).
+       * Exclude from hit rate denominator — it was never a retrieval attempt.
+       */
+      noPrompt?: boolean;
       /** Tokens actually written into agent context by this inject. */
       injectedTokens?: number;
       /** Estimated window-vs-file savings after path claims. */

@@ -1,5 +1,10 @@
 import type { SearchHit } from '@fastpath/core';
 
+/** Flatten Zod issues to a readable one-liner. */
+export function zodErr(err: import('zod').ZodError): string {
+  return err.issues.map((i) => `${i.path.length ? i.path.join('.') + ': ' : ''}${i.message}`).join('; ');
+}
+
 export function toolOk(text: string): {
   content: Array<{ type: 'text'; text: string }>;
 } {
@@ -23,9 +28,10 @@ export function formatHitLoc(hit: SearchHit): string {
   return hit.line ? `${hit.path}:${hit.line}` : hit.path;
 }
 
-export function formatHits(hits: SearchHit[], title: string): string {
+export function formatHits(hits: SearchHit[], title: string, noMatchHint?: string): string {
   if (!hits.length) {
-    return `${title}\n\n(no matches — run \`fastpath index\` if the index is empty/stale)`;
+    const hint = noMatchHint ?? 'No matches. If the index is empty/stale run `fastpath index` to rebuild; otherwise try a different query or mode (search/symbol/grep).';
+    return `${title}\n\n${hint}`;
   }
   const lines = [title, ''];
   for (const hit of hits) {

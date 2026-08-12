@@ -134,7 +134,7 @@ test('install wires resources + caveman; inject emits path ranges', async () => 
 
     const caveman = readFileSync(join(dir, '.kiro/steering/caveman.md'), 'utf8');
     assert.match(caveman, /Caveman full/);
-    assert.match(caveman, /ACTIVE EVERY RESPONSE/);
+    assert.match(caveman, /MANDATORY on every response/);
     assert.ok(existsSync(join(dir, '.kiro/skills/caveman/SKILL.md')));
     assert.ok(existsSync(join(dir, '.kiro/steering/ponytail.md')));
     assert.ok(existsSync(join(dir, '.kiro/skills/ponytail/SKILL.md')));

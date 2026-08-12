@@ -3,7 +3,7 @@
   "hooks": [
     {
       "name": "fastpath-auto-context",
-      "description": "On every user prompt, inject FastPath index hits + memories into agent context (exit 0 STDOUT). Deterministic — no LLM credits.",
+      "description": "On every user prompt, inject FastPath index hits + memories and reinforce Caveman (output) and Ponytail (code) modes (exit 0 STDOUT). Deterministic — no LLM credits.",
       "trigger": "UserPromptSubmit",
       "action": {
         "type": "command",
@@ -14,7 +14,7 @@
     },
     {
       "name": "fastpath-session-start",
-      "description": "On session start: warm embedder, catch up git-changed files, inject index status.",
+      "description": "On session start: warm embedder, catch up git-changed files, inject index status. Enforces Caveman (output) and Ponytail (code) modes.",
       "trigger": "SessionStart",
       "action": {
         "type": "command",

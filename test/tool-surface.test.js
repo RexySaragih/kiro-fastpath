@@ -53,11 +53,11 @@ test('steering does not duplicate the tool-pick table', () => {
   assert.match(retrieval, /Architect/);
   assert.match(retrieval, /caveman\.md/);
   assert.match(caveman, /Caveman full/);
-  assert.match(caveman, /ACTIVE EVERY RESPONSE/);
+  assert.match(caveman, /MANDATORY on every response/);
   assert.match(caveman, /OUTPUT MODE = caveman full/);
   assert.match(ponytail, /lazy senior/i);
   assert.match(ponytail, /YAGNI/);
-  assert.match(ponytail, /CODE MODE = ponytail full/);
+  assert.match(ponytail, /CODE MODE = ponytail full.*MANDATORY/i);
 });
 
 test('find dispatches every mode and memory round-trips through one tool', async () => {

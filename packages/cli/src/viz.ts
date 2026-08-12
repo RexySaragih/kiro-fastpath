@@ -84,18 +84,25 @@ function ledgerInsight(args: {
   return 'Ledger mixes measured spend with estimated avoid buckets.';
 }
 
-function collectMetricsSummary(): VizMetricsSummary {
+function collectMetricsSummary(workspace?: string): VizMetricsSummary {
   const events = readMetrics(500);
-  const injects = events.filter(
+  const allInjects = events.filter(
     (e): e is Extract<(typeof events)[number], { type: 'inject' }> => e.type === 'inject',
   );
+  // Scope to this workspace when provided; legacy events without workspace field pass through.
+  const injects = workspace
+    ? allInjects.filter((i) => !i.workspace || i.workspace === workspace)
+    : allInjects;
   const indexes = events.filter((e) => e.type === 'index').length;
   const doctors = events.filter((e) => e.type === 'doctor').length;
   let hitRate: number | null = null;
   let p50DeltaMs: number | null = null;
   let timeouts = 0;
   if (injects.length) {
-    hitRate = injects.filter((i) => i.hits > 0).length / injects.length;
+    const retrievalInjects = injects.filter((i) => !i.noPrompt);
+    hitRate = retrievalInjects.length
+      ? retrievalInjects.filter((i) => i.hits > 0).length / retrievalInjects.length
+      : null;
     const deltas = [...injects.map((i) => i.deltaMs)].sort((a, b) => a - b);
     p50DeltaMs = deltas[Math.floor(deltas.length / 2)] ?? 0;
     timeouts = injects.filter((i) => i.timedOutDelta || i.timedOutRetrieve).length;
@@ -297,7 +304,7 @@ export function buildVizPageData(workspace: string): VizPageData {
   const snap = collectVizSnapshot(workspace);
   return {
     ...snap,
-    metrics: collectMetricsSummary(),
+    metrics: collectMetricsSummary(workspace),
     generatedAt: new Date().toISOString(),
   };
 }

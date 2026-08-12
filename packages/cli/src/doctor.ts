@@ -262,9 +262,9 @@ function checkSteeringCaveman(workspace: string, issues: string[], ok: string[])
     issues.push('Steering caveman.md missing — run `fastpath install-kiro` / rewire');
   } else {
     const body = readFileSync(cavemanPath, 'utf8');
-    if (!/#\s*Caveman full/i.test(body) || !/ACTIVE EVERY RESPONSE/i.test(body)) {
+    if (!/#\s*Caveman full/i.test(body) || !/MANDATORY on every response/i.test(body)) {
       issues.push(
-        'Steering caveman.md missing Caveman full / ACTIVE EVERY RESPONSE — re-run `fastpath install-kiro` / rewire',
+        'Steering caveman.md missing Caveman full / MANDATORY — re-run `fastpath install-kiro` / rewire',
       );
     } else {
       ok.push('Steering includes Caveman full (caveman.md)');
@@ -282,9 +282,9 @@ function checkSteeringCaveman(workspace: string, issues: string[], ok: string[])
     issues.push('Steering ponytail.md missing — run `fastpath install-kiro` / rewire');
   } else {
     const pBody = readFileSync(ponytailPath, 'utf8');
-    if (!/YAGNI/i.test(pBody) || !/lazy senior/i.test(pBody) || !/CODE MODE\s*=\s*ponytail/i.test(pBody)) {
+    if (!/YAGNI/i.test(pBody) || !/lazy senior/i.test(pBody) || !/CODE MODE\s*=\s*ponytail.*MANDATORY/i.test(pBody)) {
       issues.push(
-        'Steering ponytail.md missing YAGNI / lazy senior / CODE MODE — re-run `fastpath install-kiro` / rewire',
+        'Steering ponytail.md missing YAGNI / lazy senior / CODE MODE MANDATORY — re-run `fastpath install-kiro` / rewire',
       );
     } else {
       ok.push('Steering includes Ponytail full (ponytail.md)');
@@ -309,8 +309,8 @@ function checkSteeringCaveman(workspace: string, issues: string[], ok: string[])
       agentsBody.includes('<!-- fastpath:caveman -->');
     if (
       !hasMarker ||
-      !/OUTPUT MODE\s*=\s*caveman full/i.test(agentsBody) ||
-      !/CODE MODE\s*=\s*ponytail full/i.test(agentsBody) ||
+      !/OUTPUT MODE\s*=\s*caveman.*MANDATORY/i.test(agentsBody) ||
+      !/CODE MODE\s*=\s*ponytail.*MANDATORY/i.test(agentsBody) ||
       !/YAGNI/i.test(agentsBody)
     ) {
       issues.push(
@@ -695,20 +695,23 @@ export async function runDoctor(workspace: string): Promise<DoctorResult> {
   const injects = readMetrics(200).filter(
     (e): e is Extract<typeof e, { type: 'inject' }> => e.type === 'inject',
   );
-  if (injects.length >= IndexLimits.INJECT_HIT_RATE_MIN_SAMPLES) {
-    const withHits = injects.filter((i) => i.hits > 0).length;
-    const rate = withHits / injects.length;
-    const timeouts = injects.filter((i) => i.timedOutDelta || i.timedOutRetrieve).length;
+  // Scope to this workspace — the journal is global (shared across all projects).
+  const wsInjects = injects.filter((i) => !i.workspace || i.workspace === workspace);
+  const retrievalInjects = wsInjects.filter((i) => !i.noPrompt);
+  if (retrievalInjects.length >= IndexLimits.INJECT_HIT_RATE_MIN_SAMPLES) {
+    const withHits = retrievalInjects.filter((i) => i.hits > 0).length;
+    const rate = withHits / retrievalInjects.length;
+    const timeouts = retrievalInjects.filter((i) => i.timedOutDelta || i.timedOutRetrieve).length;
     if (rate < IndexLimits.INJECT_HIT_RATE_FLOOR) {
       notes.push(
-        `Inject hitRate=${(rate * 100).toFixed(0)}% over ${injects.length} samples — index may be stale; run \`fastpath index\``,
+        `Inject hitRate=${(rate * 100).toFixed(0)}% over ${retrievalInjects.length} retrieval turns — index may be stale; run \`fastpath index\``,
       );
     } else {
-      ok.push(`Inject hitRate=${(rate * 100).toFixed(0)}% (n=${injects.length})`);
+      ok.push(`Inject hitRate=${(rate * 100).toFixed(0)}% (n=${retrievalInjects.length})`);
     }
-    if (timeouts > injects.length / 2) {
+    if (timeouts > retrievalInjects.length / 2) {
       notes.push(
-        `Inject timeouts high (${timeouts}/${injects.length}) — prefer \`fastpath watch\` or raise budgets`,
+        `Inject timeouts high (${timeouts}/${retrievalInjects.length}) — prefer \`fastpath watch\` or raise budgets`,
       );
     }
   }

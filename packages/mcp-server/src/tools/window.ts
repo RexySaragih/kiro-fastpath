@@ -2,7 +2,8 @@ import { z } from 'zod';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { readWindow, WindowLimits } from '@fastpath/core';
 import { recordWindowMetric } from '../record-metric.js';
-import { toolErr, toolOk } from '../utils/format.js';
+import { toolErr, toolOk, zodErr } from '../utils/format.js';
+import { sanitizeErrorMessage } from '../clients/base-client.js';
 import { resolveWorkspace } from '../workspace.js';
 
 const READ_ONLY = {
@@ -49,10 +50,13 @@ const windowSchema = z.object({
 
 export function handleWindow(args: unknown) {
   const parsed = windowSchema.safeParse(args);
-  if (!parsed.success) return toolErr(parsed.error.message);
+  if (!parsed.success) return toolErr(zodErr(parsed.error));
   const { path, start_line, end_line } = parsed.data;
   if (end_line < start_line) {
-    return toolErr('end_line must be >= start_line');
+    return toolErr(
+      `end_line (${end_line}) must be >= start_line (${start_line}). ` +
+      'Use find/impact to get a valid path:start-end range, then pass those values here.',
+    );
   }
   try {
     const win = readWindow(resolveWorkspace(), path, start_line, end_line);
@@ -67,7 +71,11 @@ export function handleWindow(args: unknown) {
     recordWindowMetric(result, win.path, win.body);
     return result;
   } catch (err) {
-    const result = toolErr(err instanceof Error ? err.message : String(err));
+    const result = toolErr(
+      `window failed: ${sanitizeErrorMessage(err)}. ` +
+      'path must be workspace-relative (e.g. "src/auth.ts", not an absolute path). ' +
+      'Use find mode=symbol/grep to get a valid path first.',
+    );
     recordWindowMetric(result, path, '');
     return result;
   }
