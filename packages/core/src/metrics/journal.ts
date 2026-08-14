@@ -36,11 +36,11 @@ export function appendMetric(event: MetricEvent): void {
   appendRotatingLine(metricsPath(), JSON.stringify(event));
 }
 
-export function readMetrics(limit = 200): MetricEvent[] {
+export function readMetrics(limit = 10_000): MetricEvent[] {
   const path = metricsPath();
   if (!existsSync(path)) return [];
   const lines = readFileSync(path, 'utf8').split('\n').filter(Boolean);
-  const slice = lines.slice(-limit);
+  const slice = typeof limit === 'number' && limit > 0 ? lines.slice(-limit) : lines;
   const out: MetricEvent[] = [];
   for (const line of slice) {
     try {

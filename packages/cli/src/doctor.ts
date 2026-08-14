@@ -692,12 +692,17 @@ export async function runDoctor(workspace: string): Promise<DoctorResult> {
     }
   }
 
-  const injects = readMetrics(200).filter(
+  const allInjects = readMetrics().filter(
     (e): e is Extract<typeof e, { type: 'inject' }> => e.type === 'inject',
   );
-  // Scope to this workspace — the journal is global (shared across all projects).
-  const wsInjects = injects.filter((i) => !i.workspace || i.workspace === workspace);
-  const retrievalInjects = wsInjects.filter((i) => !i.noPrompt);
+  // Scope to this workspace — exact matches first, then legacy (no workspace), then fallback to all.
+  const exactWs = allInjects.filter((i) => i.workspace === workspace);
+  const legacy = allInjects.filter((i) => !i.workspace);
+  const wsInjects = exactWs.length ? exactWs : legacy.length ? legacy : allInjects;
+  let retrievalInjects = wsInjects.filter((i) => !i.noPrompt);
+  if (!retrievalInjects.length && allInjects.some((i) => !i.noPrompt)) {
+    retrievalInjects = allInjects.filter((i) => !i.noPrompt);
+  }
   if (retrievalInjects.length >= IndexLimits.INJECT_HIT_RATE_MIN_SAMPLES) {
     const withHits = retrievalInjects.filter((i) => i.hits > 0).length;
     const rate = withHits / retrievalInjects.length;
@@ -733,6 +738,7 @@ export async function runDoctor(workspace: string): Promise<DoctorResult> {
   appendMetric({
     type: 'doctor',
     at: new Date().toISOString(),
+    workspace,
     ready,
     issueCount: issues.length,
   });

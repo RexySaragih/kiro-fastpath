@@ -130,6 +130,7 @@ async function run(): Promise<void> {
   appendMetric({
     type: 'stop',
     at: new Date().toISOString(),
+    workspace,
     session: sessionId,
     edited: true,
     paths: shown.length,

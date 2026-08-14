@@ -85,21 +85,32 @@ function ledgerInsight(args: {
 }
 
 function collectMetricsSummary(workspace?: string): VizMetricsSummary {
-  const events = readMetrics(500);
+  const events = readMetrics();
   const allInjects = events.filter(
     (e): e is Extract<(typeof events)[number], { type: 'inject' }> => e.type === 'inject',
   );
-  // Scope to this workspace when provided; legacy events without workspace field pass through.
-  const injects = workspace
-    ? allInjects.filter((i) => !i.workspace || i.workspace === workspace)
-    : allInjects;
+  // Scope to workspace: exact matches first, then legacy (no workspace), then all injects fallback.
+  const exactWsInjects = workspace ? allInjects.filter((i) => i.workspace === workspace) : [];
+  const legacyInjects = allInjects.filter((i) => !i.workspace);
+  const scopedInjects = exactWsInjects.length
+    ? exactWsInjects
+    : legacyInjects.length
+      ? legacyInjects
+      : allInjects;
+
+  let retrievalInjects = scopedInjects.filter((i) => !i.noPrompt);
+  let injects = scopedInjects;
+  if (!retrievalInjects.length && allInjects.some((i) => !i.noPrompt)) {
+    retrievalInjects = allInjects.filter((i) => !i.noPrompt);
+    injects = allInjects;
+  }
+
   const indexes = events.filter((e) => e.type === 'index').length;
   const doctors = events.filter((e) => e.type === 'doctor').length;
   let hitRate: number | null = null;
   let p50DeltaMs: number | null = null;
   let timeouts = 0;
   if (injects.length) {
-    const retrievalInjects = injects.filter((i) => !i.noPrompt);
     hitRate = retrievalInjects.length
       ? retrievalInjects.filter((i) => i.hits > 0).length / retrievalInjects.length
       : null;
@@ -107,7 +118,7 @@ function collectMetricsSummary(workspace?: string): VizMetricsSummary {
     p50DeltaMs = deltas[Math.floor(deltas.length / 2)] ?? 0;
     timeouts = injects.filter((i) => i.timedOutDelta || i.timedOutRetrieve).length;
   }
-  const ledger = tokenLedger(events);
+  const ledger = tokenLedger(events, workspace);
   const hasInjectSamples = ledger.injects > 0;
   const hasMcpSamples = ledger.mcpCalls > 0;
   const hasAvoidSamples =

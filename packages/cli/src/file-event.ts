@@ -55,6 +55,7 @@ async function run(): Promise<void> {
     appendMetric({
       type: 'file-event',
       at: new Date().toISOString(),
+      workspace,
       action: 'delete',
       files: removed,
       ms: Date.now() - started,
@@ -78,6 +79,7 @@ async function run(): Promise<void> {
   appendMetric({
     type: 'file-event',
     at: new Date().toISOString(),
+    workspace,
     action: 'index',
     files: indexed,
     ms: Date.now() - started,

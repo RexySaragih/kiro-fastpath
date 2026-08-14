@@ -31,6 +31,7 @@ export type MetricEvent =
       type: 'guardrail';
       at: string;
       session?: string;
+      workspace?: string;
       tool: string;
       blocked: boolean;
       /** Tokens the block plausibly avoided (0 when not blocked). */
@@ -39,6 +40,7 @@ export type MetricEvent =
   | {
       type: 'mcp';
       at: string;
+      workspace?: string;
       tool: string;
       ok: boolean;
       hits: number;
@@ -53,6 +55,7 @@ export type MetricEvent =
   | {
       type: 'index';
       at: string;
+      workspace?: string;
       mode: 'full' | 'git' | 'paths';
       filesIndexed: number;
       ms: number;
@@ -60,12 +63,14 @@ export type MetricEvent =
   | {
       type: 'doctor';
       at: string;
+      workspace?: string;
       ready: boolean;
       issueCount: number;
     }
   | {
       type: 'file-event';
       at: string;
+      workspace?: string;
       action: 'index' | 'delete';
       files: number;
       ms: number;
@@ -73,12 +78,14 @@ export type MetricEvent =
   | {
       type: 'session-start';
       at: string;
+      workspace?: string;
       gitDelta: number;
       ms: number;
     }
   | {
       type: 'stop';
       at: string;
+      workspace?: string;
       session?: string;
       edited: boolean;
       paths: number;
@@ -86,6 +93,7 @@ export type MetricEvent =
   | {
       type: 'routing';
       at: string;
+      workspace?: string;
       session?: string;
       agent: string;
       confidence: 'high' | 'medium' | 'low';

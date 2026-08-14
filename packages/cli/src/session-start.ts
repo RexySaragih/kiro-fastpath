@@ -90,6 +90,7 @@ async function run(): Promise<void> {
   appendMetric({
     type: 'session-start',
     at: new Date().toISOString(),
+    workspace,
     gitDelta,
     ms: Date.now() - started,
   });

@@ -25,10 +25,12 @@ export function recordLocateMetric(
 ): void {
   const ok = result.isError !== true;
   const responseTokens = estimateTokens(responseText(result));
+  const workspace = resolveWorkspace();
   if (!ok || !hits.length) {
     appendMetric({
       type: 'mcp',
       at: new Date().toISOString(),
+      workspace,
       tool,
       ok,
       hits: hits.length,
@@ -39,10 +41,11 @@ export function recordLocateMetric(
     });
     return;
   }
-  const credit = creditLocateHits(resolveWorkspace(), hits);
+  const credit = creditLocateHits(workspace, hits);
   appendMetric({
     type: 'mcp',
     at: new Date().toISOString(),
+    workspace,
     tool,
     ok: true,
     hits: hits.length,
@@ -61,10 +64,12 @@ export function recordWindowMetric(
 ): void {
   const ok = result.isError !== true;
   const responseTokens = estimateTokens(responseText(result));
+  const workspace = resolveWorkspace();
   if (!ok) {
     appendMetric({
       type: 'mcp',
       at: new Date().toISOString(),
+      workspace,
       tool: 'window',
       ok: false,
       hits: 0,
@@ -76,13 +81,14 @@ export function recordWindowMetric(
     return;
   }
   const credit = creditWindowRead(
-    resolveWorkspace(),
+    workspace,
     path,
     estimateTokens(body),
   );
   appendMetric({
     type: 'mcp',
     at: new Date().toISOString(),
+    workspace,
     tool: 'window',
     ok: true,
     hits: 1,
@@ -102,6 +108,7 @@ export function recordPlainMetric(
   appendMetric({
     type: 'mcp',
     at: new Date().toISOString(),
+    workspace: resolveWorkspace(),
     tool,
     ok: result.isError !== true,
     hits,

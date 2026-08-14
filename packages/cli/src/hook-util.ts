@@ -80,15 +80,27 @@ function asTrimmedString(value: unknown): string {
 }
 
 function nestedPrompt(obj: unknown): string {
-  if (!obj || typeof obj !== 'object') return '';
+  if (!obj) return '';
+  if (typeof obj === 'string') return obj.trim();
+  if (typeof obj !== 'object') return '';
   const rec = obj as Record<string, unknown>;
   return (
-    asTrimmedString(rec.prompt) ||
+    asTrimmedString(rec.user_prompt) ||
     asTrimmedString(rec.userPrompt) ||
+    asTrimmedString(rec.prompt) ||
+    asTrimmedString(rec.user_input) ||
+    asTrimmedString(rec.userInput) ||
+    asTrimmedString(rec.input) ||
+    asTrimmedString(rec.prompt_text) ||
+    asTrimmedString(rec.promptText) ||
     asTrimmedString(rec.message) ||
     asTrimmedString(rec.text) ||
     asTrimmedString(rec.content) ||
-    asTrimmedString(rec.query)
+    asTrimmedString(rec.query) ||
+    asTrimmedString(rec.task) ||
+    asTrimmedString(rec.instruction) ||
+    asTrimmedString(rec.value) ||
+    asTrimmedString(rec.body)
   );
 }
 
@@ -101,23 +113,40 @@ export function extractPrompt(payload: HookPayload, raw = ''): string {
     process.env.USER_PROMPT?.trim() ||
     process.env.KIRO_USER_PROMPT?.trim() ||
     process.env.KIRO_PROMPT?.trim() ||
+    process.env.PROMPT?.trim() ||
+    process.env.HOOK_USER_PROMPT?.trim() ||
+    process.env.HOOK_PROMPT?.trim() ||
+    process.env.HOOK_INPUT?.trim() ||
     '';
   if (fromEnv) return fromEnv;
 
   const top =
-    asTrimmedString(payload.prompt) ||
+    asTrimmedString(payload.user_prompt) ||
     asTrimmedString(payload.userPrompt) ||
+    asTrimmedString(payload.prompt) ||
+    asTrimmedString(payload.user_input) ||
+    asTrimmedString(payload.userInput) ||
+    asTrimmedString(payload.prompt_text) ||
+    asTrimmedString(payload.promptText) ||
+    asTrimmedString(payload.input) ||
     asTrimmedString(payload.message) ||
     asTrimmedString(payload.text) ||
     asTrimmedString(payload.content) ||
-    asTrimmedString(payload.query);
+    asTrimmedString(payload.query) ||
+    asTrimmedString(payload.task) ||
+    asTrimmedString(payload.instruction);
   if (top) return top;
 
   const nested =
     nestedPrompt(payload.input) ||
+    nestedPrompt(payload.params) ||
+    nestedPrompt(payload.data) ||
     nestedPrompt(payload.prompt) ||
     nestedPrompt(payload.message) ||
-    nestedPrompt(payload.data);
+    nestedPrompt(payload.interaction) ||
+    nestedPrompt(payload.turn) ||
+    nestedPrompt(payload.payload) ||
+    nestedPrompt(payload.context);
   if (nested) return nested;
 
   if (raw.trim() && !raw.trim().startsWith('{')) return raw.trim();

@@ -47,10 +47,22 @@ export function summarizeMetrics(events: MetricEvent[], workspace?: string): str
   const allInjects = events.filter(
     (e): e is Extract<MetricEvent, { type: 'inject' }> => e.type === 'inject',
   );
-  // Scope to workspace when provided; legacy events without workspace field pass through.
-  const injects = workspace
-    ? allInjects.filter((i) => !i.workspace || i.workspace === workspace)
-    : allInjects;
+  // Scope to workspace: exact matches first, then legacy (no workspace), then all injects fallback.
+  const exactWsInjects = workspace ? allInjects.filter((i) => i.workspace === workspace) : [];
+  const legacyInjects = allInjects.filter((i) => !i.workspace);
+  const scopedInjects = exactWsInjects.length
+    ? exactWsInjects
+    : legacyInjects.length
+      ? legacyInjects
+      : allInjects;
+
+  let retrievalInjects = scopedInjects.filter((i) => !i.noPrompt);
+  let injects = scopedInjects;
+  if (!retrievalInjects.length && allInjects.some((i) => !i.noPrompt)) {
+    retrievalInjects = allInjects.filter((i) => !i.noPrompt);
+    injects = allInjects;
+  }
+
   const indexes = events.filter((e) => e.type === 'index');
   const doctors = events.filter((e) => e.type === 'doctor');
   const guards = events.filter(

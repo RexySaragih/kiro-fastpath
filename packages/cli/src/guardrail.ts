@@ -165,6 +165,7 @@ async function run(): Promise<void> {
     appendMetric({
       type: 'guardrail',
       at: new Date().toISOString(),
+      workspace,
       session,
       tool,
       blocked: shouldBlock,
@@ -219,6 +220,7 @@ async function run(): Promise<void> {
   appendMetric({
     type: 'guardrail',
     at: new Date().toISOString(),
+    workspace,
     session,
     tool,
     blocked: shouldBlock,

@@ -22,14 +22,18 @@ export interface TokenLedger {
  * Measured spend vs estimated avoid buckets.
  * net = tokensAvoided − spentTokens (mixed honesty — UI must label ≈).
  */
-export function tokenLedger(events: MetricEvent[]): TokenLedger {
-  const injects = events.filter(
+export function tokenLedger(events: MetricEvent[], workspace?: string): TokenLedger {
+  const scopedEvents = workspace
+    ? events.filter((e) => !('workspace' in e) || !e.workspace || e.workspace === workspace)
+    : events;
+  const targetEvents = scopedEvents.length ? scopedEvents : events;
+  const injects = targetEvents.filter(
     (e): e is Extract<MetricEvent, { type: 'inject' }> => e.type === 'inject',
   );
-  const guards = events.filter(
+  const guards = targetEvents.filter(
     (e): e is Extract<MetricEvent, { type: 'guardrail' }> => e.type === 'guardrail',
   );
-  const mcps = events.filter(
+  const mcps = targetEvents.filter(
     (e): e is Extract<MetricEvent, { type: 'mcp' }> => e.type === 'mcp',
   );
 
