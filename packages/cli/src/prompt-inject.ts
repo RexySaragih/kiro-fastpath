@@ -33,9 +33,6 @@ import {
   writeContext,
   workspaceFromPayload,
 } from './hook-util.js';
-import { CAVEMAN_OUTPUT_NUDGE, PONYTAIL_CODE_NUDGE } from './agents-md.js';
-
-const STYLE_NUDGES = `${CAVEMAN_OUTPUT_NUDGE}\n${PONYTAIL_CODE_NUDGE}`;
 import {
   appendMetric,
   creditLocateHits,
@@ -43,9 +40,12 @@ import {
   type InjectMode,
 } from './metrics.js';
 import {
+  classifyIntent,
+  formatGatherHint,
   formatRoutingLine,
   isTinyPrompt,
   routingAdvice,
+  type PromptIntent,
 } from './routing.js';
 
 /**
@@ -114,6 +114,36 @@ function memoryLines(memories: MemoryEntry[]): string[] {
   ];
 }
 
+function injectHeader(stats: { files: number; symbols: number }): string[] {
+  return [
+    `## FastPath (${stats.files} files, ${stats.symbols} symbols)`,
+    '',
+    'Windows below — prefer `window` over whole-file reads. find/impact/window/memory via MCP.',
+    '',
+  ];
+}
+
+function snippetCharBudget(qualityCount: number): number {
+  if (qualityCount >= 2) return InjectLimits.SNIPPET_MAX_CHARS;
+  if (qualityCount === 1) {
+    return Math.floor(InjectLimits.SNIPPET_MAX_CHARS * InjectLimits.SNIPPET_ONE_HIT_RATIO);
+  }
+  return 0;
+}
+
+function formatMemoryBlock(memories: MemoryEntry[]): string[] {
+  if (!memories.length) return [];
+  return [
+    '',
+    '## FastPath memory (auto-injected)',
+    '',
+    ...memories.map((m) => {
+      const stale = m.stale ? ' [STALE — referenced files changed since saved]' : '';
+      return `- (${m.kind}) ${m.text.slice(0, InjectLimits.MEMORY_SNIPPET_MAX_CHARS)}${stale}`;
+    }),
+  ];
+}
+
 /** Fallback when prompt cannot be extracted — memories only, labeled recency. */
 function noPromptFallbackBody(workspace: string, reason: string): string {
   const pack = recencyPackLines(workspace);
@@ -125,12 +155,30 @@ function noPromptFallbackBody(workspace: string, reason: string): string {
   }
   const body = [...pack, ...memoryLines(memories)];
   if (!body.length) {
-    return `## FastPath\n\n${STYLE_NUDGES}\n\n(${reason}; index has nothing to offer yet)\n`;
+    return `## FastPath\n\n(${reason}; index has nothing to offer yet)\n`;
   }
-  return `## FastPath (auto-injected)\n\n${STYLE_NUDGES}\n\n(${reason})\n\n${body.join('\n')}\n\nLocate with FastPath MCP: find / impact / window / memory. Do NOT walk the repo.\n`;
+  return `## FastPath\n\n(${reason})\n\n${body.join('\n')}\n`;
 }
 
-function chunkBudget(prompt: string): number {
+async function emitNonCodeInject(
+  workspace: string,
+  prompt: string,
+): Promise<{ body: string; hits: number }> {
+  const stats = getIndexStats(workspace);
+  const memories = await recallRelevantMemories(workspace, prompt);
+  const lines = [
+    stats.files
+      ? `## FastPath (${stats.files} files, ${stats.symbols} symbols)`
+      : '## FastPath',
+    '',
+    '(session/meta — no code windows)',
+  ];
+  lines.push(...formatMemoryBlock(memories));
+  return { body: `${lines.join('\n')}\n`, hits: 0 };
+}
+
+function chunkBudget(prompt: string, intent: PromptIntent): number {
+  if (intent === 'question') return InjectLimits.QUESTION_CHUNKS;
   return isTinyPrompt(prompt)
     ? Math.max(2, Math.floor(InjectLimits.CONTEXT_CHUNKS / 2))
     : InjectLimits.CONTEXT_CHUNKS;
@@ -190,6 +238,7 @@ async function run(): Promise<void> {
       retrieveMs: number;
       hits: number;
       noPrompt?: boolean;
+      intent?: PromptIntent;
       timedOutDelta: boolean;
       timedOutRetrieve: boolean;
       windowVsFileTokens?: number;
@@ -213,6 +262,7 @@ async function run(): Promise<void> {
       retrieveMs: stats.retrieveMs,
       hits: stats.hits,
       noPrompt: stats.noPrompt,
+      intent: stats.intent,
       timedOutDelta: stats.timedOutDelta,
       timedOutRetrieve: stats.timedOutRetrieve,
     });
@@ -239,12 +289,27 @@ async function run(): Promise<void> {
     lastPromptAt: new Date().toISOString(),
   });
 
+  const intent = classifyIntent(prompt);
+  if (intent === 'meta') {
+    const skipped = await emitNonCodeInject(workspace, prompt);
+    record(skipped.body, {
+      dirty: 0,
+      deltaMs: 0,
+      retrieveMs: 0,
+      hits: 0,
+      intent,
+      timedOutDelta: false,
+      timedOutRetrieve: false,
+    });
+    return;
+  }
+
   const delta = await maybeDeltaReindex(workspace);
 
   const stats = getIndexStats(workspace);
   if (!stats.files) {
     record(
-      `## FastPath\n\n${STYLE_NUDGES}\n\nIndex empty at \`${workspace}\`. Ask the user to run \`fastpath index\` before coding (Scout cannot shell).\n`,
+      `## FastPath\n\nIndex empty at \`${workspace}\`. Ask the user to run \`fastpath index\` before coding (Scout cannot shell or edit).\n`,
       {
         dirty: delta.dirty,
         deltaMs: delta.ms,
@@ -252,6 +317,7 @@ async function run(): Promise<void> {
         hits: 0,
         timedOutDelta: delta.timedOut,
         timedOutRetrieve: false,
+        intent,
       },
     );
     return;
@@ -259,7 +325,7 @@ async function run(): Promise<void> {
 
   const retrieveStarted = Date.now();
   const raced = await withTimeout(
-    contextForTask(workspace, prompt, chunkBudget(prompt)),
+    contextForTask(workspace, prompt, chunkBudget(prompt, intent)),
     IndexLimits.INJECT_RETRIEVE_BUDGET_MS,
   );
   const retrieveMs = Date.now() - retrieveStarted;
@@ -269,7 +335,7 @@ async function run(): Promise<void> {
       `[fastpath prompt-inject] retrieve timed out after ${IndexLimits.INJECT_RETRIEVE_BUDGET_MS}ms`,
     );
     record(
-      `## FastPath\n\n${STYLE_NUDGES}\n\n(retrieval timed out — use FastPath MCP tools: find / impact / window / memory)\n`,
+      `## FastPath\n\n(retrieval timed out — use FastPath MCP: find / impact / window / memory)\n`,
       {
         dirty: delta.dirty,
         deltaMs: delta.ms,
@@ -277,6 +343,7 @@ async function run(): Promise<void> {
         hits: 0,
         timedOutDelta: delta.timedOut,
         timedOutRetrieve: true,
+        intent,
       },
     );
     return;
@@ -285,19 +352,8 @@ async function run(): Promise<void> {
   const hits = raced.value ?? [];
   const qualityHits = countQualityHits(hits);
   const strongHits = hits.filter((h) => isQualityHit(h));
-  const lines = [
-    '## FastPath retrieved context (auto-injected)',
-    '',
-    CAVEMAN_OUTPUT_NUDGE,
-    PONYTAIL_CODE_NUDGE,
-    '',
-    `Workspace: \`${workspace}\` · indexed files=${stats.files} symbols=${stats.symbols}`,
-    '',
-    'Use these code windows first. Prefer FastPath `window` over whole-file host reads.',
-    'Minimize host whole-file reads — windows first, then edit.',
-    'Agents: Scout ≤5 files (no shell); Architect 6+ / design; Default OK for verify.',
-    '',
-  ];
+  const snippetCap = snippetCharBudget(qualityHits);
+  const lines = injectHeader(stats);
 
   // Handoff from prior turn (if any).
   try {
@@ -344,8 +400,9 @@ async function run(): Promise<void> {
     lines.push(
       '## NO_MATCH',
       '',
-      'No strong query matches for this prompt. Do **not** edit from recency alone.',
-      'Ask the user for a path/symbol, or call FastPath `find` with a sharper query.',
+      'No strong query matches. Do **not** edit from recency. Ask for a path/symbol, spawn Scout, or call `find`.',
+      '',
+      formatGatherHint(),
       '',
     );
     const pack = recencyPackLines(workspace);
@@ -353,12 +410,8 @@ async function run(): Promise<void> {
   } else {
     for (const hit of strongHits.slice(0, InjectLimits.MAX_HITS)) {
       lines.push(`- **${hit.symbol ?? hit.kind ?? 'hit'}** — \`${hitLoc(hit)}\``);
-      if (hit.snippet) {
-        lines.push(
-          '```',
-          hit.snippet.slice(0, InjectLimits.SNIPPET_MAX_CHARS),
-          '```',
-        );
+      if (hit.snippet && snippetCap > 0) {
+        lines.push('```', hit.snippet.slice(0, snippetCap), '```');
       }
     }
   }
@@ -377,20 +430,7 @@ async function run(): Promise<void> {
     prompt,
     strongHits.map((h) => h.path),
   );
-  if (memories.length) {
-    lines.push('', '## FastPath memory (auto-injected)', '');
-    for (const m of memories) {
-      const stale = m.stale ? ' [STALE — referenced files changed since saved]' : '';
-      lines.push(
-        `- (${m.kind}) ${m.text.slice(0, InjectLimits.MEMORY_SNIPPET_MAX_CHARS)}${stale}`,
-      );
-    }
-  }
-
-  lines.push(
-    '',
-    'Prefer these windows for edits. Use FastPath `window` for more lines — avoid whole-file host reads.',
-  );
+  lines.push(...formatMemoryBlock(memories));
 
   const credit =
     mode === 'off' || qualityHits === 0
@@ -402,6 +442,7 @@ async function run(): Promise<void> {
     deltaMs: delta.ms,
     retrieveMs,
     hits: qualityHits,
+    intent,
     timedOutDelta: delta.timedOut,
     timedOutRetrieve: false,
     windowVsFileTokens: credit.windowVsFileTokens,
@@ -413,7 +454,7 @@ run()
   .catch((err) => {
     console.error('[fastpath prompt-inject]', err);
     writeContext(
-      `## FastPath\n\n${STYLE_NUDGES}\n\n(retrieval error — continue carefully; prefer FastPath MCP tools)\n`,
+      `## FastPath\n\n(retrieval error — continue carefully; prefer FastPath MCP tools)\n`,
     );
   })
   .finally(() => {

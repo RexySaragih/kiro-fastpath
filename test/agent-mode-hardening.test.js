@@ -28,17 +28,16 @@ test('extractPrompt reads nested and alternate Kiro fields', async () => {
   assert.equal(extractPrompt({}, '{"x":1}'), '');
 });
 
-test('routingAdvice: Scout ≤5, Architect ≥6', async () => {
+test('routingAdvice: small edits stay Default; Architect ≥6', async () => {
   const routingPath = join(root, 'packages/cli/dist/routing.js');
   if (!existsSync(routingPath)) {
     assert.ok(true, 'dist not built yet — skip');
     return;
   }
-  const { routingAdvice } = await import(pathToFileURL(routingPath).href);
+  const { routingAdvice, formatGatherHint } = await import(pathToFileURL(routingPath).href);
 
-  const scout = routingAdvice('fix typo in login', ['src/auth.ts']);
-  assert.equal(scout?.agent, 'Scout');
-  assert.equal(scout?.confidence, 'high');
+  const small = routingAdvice('fix typo in login', ['src/auth.ts']);
+  assert.equal(small, null);
 
   const architect = routingAdvice(
     'refactor the login validation architecture across the system',
@@ -46,4 +45,23 @@ test('routingAdvice: Scout ≤5, Architect ≥6', async () => {
   );
   assert.equal(architect?.agent, 'Architect');
   assert.match(architect?.reason ?? '', /multi-file keywords/);
+
+  assert.match(formatGatherHint(), /spawn(?:ing)? Scout/);
+});
+
+test('classifyIntent: meta/question skip, code signals win', async () => {
+  const routingPath = join(root, 'packages/cli/dist/routing.js');
+  if (!existsSync(routingPath)) {
+    assert.ok(true, 'dist not built yet — skip');
+    return;
+  }
+  const { classifyIntent } = await import(pathToFileURL(routingPath).href);
+
+  assert.equal(classifyIntent('commit these changes'), 'meta');
+  assert.equal(classifyIntent('thanks'), 'meta');
+  assert.equal(classifyIntent('explain what you did'), 'meta');
+  assert.equal(classifyIntent('how does authentication work in general'), 'question');
+  assert.equal(classifyIntent('commit the AuthService fix'), 'code');
+  assert.equal(classifyIntent('how does validateJwt work'), 'code');
+  assert.equal(classifyIntent('fix login in src/auth.ts'), 'code');
 });

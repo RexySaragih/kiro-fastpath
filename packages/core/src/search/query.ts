@@ -25,6 +25,8 @@ import { classifyQuery, fuseRrf } from './rrf.js';
 /** Small domain map so "login" reaches auth code and vice versa. */
 const QUERY_SYNONYMS: Record<string, string[]> = {
   auth: ['login', 'signin', 'authenticate', 'authentication'],
+  authentication: ['auth', 'login'],
+  authenticate: ['auth', 'login'],
   login: ['auth', 'signin', 'authenticate'],
   signin: ['login', 'auth'],
   logout: ['signout', 'auth'],
@@ -32,7 +34,34 @@ const QUERY_SYNONYMS: Record<string, string[]> = {
   jwt: ['token'],
   password: ['credential', 'secret'],
   db: ['database', 'sql', 'repository'],
-  config: ['settings', 'options'],
+  database: ['db', 'sql'],
+  config: ['settings', 'options', 'configuration'],
+  configuration: ['config', 'settings'],
+  settings: ['config', 'options'],
+  util: ['utility', 'helper'],
+  utility: ['util', 'helper'],
+  helper: ['util', 'utility'],
+  middleware: ['interceptor'],
+  interceptor: ['middleware'],
+  route: ['endpoint', 'path'],
+  endpoint: ['route', 'path'],
+  handler: ['controller'],
+  controller: ['handler'],
+  schema: ['model', 'entity'],
+  model: ['schema', 'entity'],
+  entity: ['schema', 'model'],
+  validate: ['verify', 'check'],
+  verify: ['validate', 'check'],
+  cache: ['store'],
+  store: ['cache'],
+  deploy: ['release', 'publish'],
+  release: ['deploy', 'publish'],
+  publish: ['deploy', 'release'],
+  test: ['spec'],
+  spec: ['test'],
+  mock: ['stub', 'fake'],
+  stub: ['mock', 'fake'],
+  fake: ['mock', 'stub'],
   delete: ['remove', 'destroy'],
   create: ['add', 'insert'],
   update: ['edit', 'patch'],
@@ -61,6 +90,31 @@ export function expandQueryTerms(query: string): string[] {
     for (const syn of QUERY_SYNONYMS[term.toLowerCase()] ?? []) terms.add(syn);
   }
   return [...terms].slice(0, MAX_EXPANDED_TERMS);
+}
+
+const MAX_QUERY_SIGNALS = 12;
+
+/**
+ * Pull high-signal identifiers from a conversational prompt so FTS is not
+ * diluted by filler. Empty → caller should use the full prompt.
+ */
+export function extractQuerySignals(prompt: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (raw: string) => {
+    const t = raw.trim();
+    if (t.length < 2) return;
+    const key = t.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(t);
+  };
+  for (const m of prompt.matchAll(/`([^`]+)`/g)) add(m[1]!);
+  for (const m of prompt.matchAll(/[\w./-]+\.[a-zA-Z]{1,5}\b/g)) add(m[0]!);
+  for (const m of prompt.matchAll(/\b[A-Z][a-zA-Z0-9]*[A-Z][A-Za-z0-9]*\b/g)) add(m[0]!);
+  for (const m of prompt.matchAll(/\b[a-z]+[A-Z][A-Za-z0-9]*\b/g)) add(m[0]!);
+  for (const m of prompt.matchAll(/\b[a-z]+_[a-z0-9_]+\b/g)) add(m[0]!);
+  return out.slice(0, MAX_QUERY_SIGNALS);
 }
 
 function escapeFts(query: string): string {
@@ -467,10 +521,18 @@ export async function contextForTask(
   maxChunks?: number,
 ): Promise<SearchHit[]> {
   const limit = clampTopK(maxChunks, DEFAULT_MAX_CHUNKS, HARD_MAX_CHUNKS);
-  let hits = await searchIndex(workspace, task, {
+  const signals = extractQuerySignals(task);
+  const primary = signals.length ? signals.join(' ') : task;
+  let hits = await searchIndex(workspace, primary, {
     topK: limit,
     rerankCandidates: IndexLimits.RERANK_CANDIDATES_INJECT,
   });
+  if (!hits.length && signals.length) {
+    hits = await searchIndex(workspace, task, {
+      topK: limit,
+      rerankCandidates: IndexLimits.RERANK_CANDIDATES_INJECT,
+    });
+  }
   if (!hits.length) {
     hits = enrichHitsWithWindows(workspace, zeroHitLadder(workspace, task, limit));
   }

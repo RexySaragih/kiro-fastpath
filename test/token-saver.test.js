@@ -160,7 +160,7 @@ test('Install: all event hooks + Scout/Architect wired with no placeholders', ()
 
     const scout = readFileSync(join(dir, '.kiro/agents/Scout.md'), 'utf8');
     assert.match(scout, /name:\s*Scout/);
-    assert.match(scout, /claude-sonnet-4\.5/);
+    assert.match(scout, /claude-haiku-4\.5/);
     assert.doesNotMatch(scout, /capability:\s*write\b/);
     assert.doesNotMatch(scout, /__FASTPATH_/);
     // 4-tool surface (find / impact / window / memory) + caveman wiring.
@@ -169,9 +169,11 @@ test('Install: all event hooks + Scout/Architect wired with no placeholders', ()
     assert.match(scout, /- memory\n/);
     assert.match(scout, /\.kiro\/steering\/\*\*\/\*\.md/);
     assert.match(scout, /skill:\/\/\.kiro\/skills\/caveman\/SKILL\.md/);
-    assert.match(scout, /skill:\/\/\.kiro\/skills\/ponytail\/SKILL\.md/);
+    assert.doesNotMatch(scout, /skill:\/\/\.kiro\/skills\/ponytail\/SKILL\.md/);
     assert.match(scout, /OUTPUT MODE = caveman full/);
-    assert.match(scout, /CODE MODE = ponytail full/);
+    assert.doesNotMatch(scout, /CODE MODE = ponytail full/);
+    assert.match(scout, /context-gathering/);
+    assert.match(scout, /### Confidence:/);
     assert.ok(existsSync(join(dir, '.kiro/steering/caveman.md')));
     assert.ok(existsSync(join(dir, '.kiro/skills/caveman/SKILL.md')));
     assert.ok(existsSync(join(dir, '.kiro/steering/ponytail.md')));
@@ -329,6 +331,7 @@ test('Session start: reports index status and recent memory', async () => {
     });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /FastPath session/);
+    assert.doesNotMatch(result.stdout, /OUTPUT MODE = caveman full/);
     assert.match(result.stdout, /Recent project memory/);
     assert.match(result.stdout, /auth module/);
   } finally {

@@ -18,6 +18,8 @@ export type MetricEvent =
        * Exclude from hit rate denominator — it was never a retrieval attempt.
        */
       noPrompt?: boolean;
+      /** Prompt intent at inject time. Absent on pre-intent journal rows. */
+      intent?: 'code' | 'question' | 'meta';
       /** Tokens actually written into agent context by this inject. */
       injectedTokens?: number;
       /** Estimated window-vs-file savings after path claims. */

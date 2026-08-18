@@ -61,9 +61,13 @@ export const WindowLimits = {
 export const InjectLimits = {
   MAX_HITS: 4,
   SNIPPET_MAX_CHARS: 1200,
+  /** When only one quality hit, ship this fraction of SNIPPET_MAX_CHARS. */
+  SNIPPET_ONE_HIT_RATIO: 0.6,
   MEMORY_TOP_K: 3,
   MEMORY_SNIPPET_MAX_CHARS: 240,
   CONTEXT_CHUNKS: 4,
+  /** Smaller pack for question-intent turns. */
+  QUESTION_CHUNKS: 2,
   TOKEN_BUDGET: 1400,
 } as const;
 

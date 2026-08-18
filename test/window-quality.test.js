@@ -125,11 +125,11 @@ test('install wires resources + caveman; inject emits path ranges', async () => 
     const scout = readFileSync(join(dir, '.kiro/agents/Scout.md'), 'utf8');
     assert.match(scout, /\.kiro\/steering\/\*\*\/\*\.md/);
     assert.match(scout, /skill:\/\/\.kiro\/skills\/caveman\/SKILL\.md/);
-    assert.match(scout, /skill:\/\/\.kiro\/skills\/ponytail\/SKILL\.md/);
+    assert.doesNotMatch(scout, /skill:\/\/\.kiro\/skills\/ponytail\/SKILL\.md/);
     assert.match(scout, /- window\n/);
     assert.match(scout, /OUTPUT MODE = caveman full/);
-    assert.match(scout, /CODE MODE = ponytail full/);
-    assert.match(scout, /at most 5 distinct files/);
+    assert.doesNotMatch(scout, /CODE MODE = ponytail full/);
+    assert.match(scout, /context-gathering/);
     assert.doesNotMatch(scout, /\bcapability:\s*shell\b[\s\S]*effect:\s*allow/);
 
     const caveman = readFileSync(join(dir, '.kiro/steering/caveman.md'), 'utf8');
@@ -149,7 +149,7 @@ test('install wires resources + caveman; inject emits path ranges', async () => 
       }),
     });
     assert.equal(inj.status, 0, inj.stderr);
-    assert.match(inj.stdout, /FastPath retrieved context/);
+    assert.match(inj.stdout, /## FastPath \(/);
     assert.match(inj.stdout, /:\d+(-\d+)?`/);
     assert.match(inj.stdout, /window/);
 

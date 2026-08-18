@@ -20,6 +20,10 @@ test('advertised MCP surface is 4 tools under the fixed-overhead budget', async 
   const { windowTool } = await import(join(root, 'packages/mcp-server/dist/tools/window.js'));
   const tools = [findTool, impactTool, windowTool, memoryTool];
   assert.equal(tools.length, 4);
+  assert.match(findTool.description, /mode=symbol/);
+  assert.match(findTool.description, /mode=grep/);
+  assert.ok(Array.isArray(findTool.inputSchema.examples));
+  assert.equal(findTool.inputSchema.examples.length, 3);
 
   const schemaTokens = estimateTokens(JSON.stringify(tools));
   const steeringTokens = estimateTokens(
@@ -52,6 +56,7 @@ test('steering does not duplicate the tool-pick table', () => {
   assert.match(retrieval, /grep -r/);
   assert.match(retrieval, /Architect/);
   assert.match(retrieval, /caveman\.md/);
+  assert.match(retrieval, /ponytail\.md/);
   assert.match(caveman, /Caveman full/);
   assert.match(caveman, /MANDATORY on every response/);
   assert.match(caveman, /OUTPUT MODE = caveman full/);

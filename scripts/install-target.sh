@@ -133,7 +133,7 @@ FP use "$WORKSPACE"
 
 for agent_file in "$WORKSPACE"/.kiro/agents/*.{md,json}; do
   [[ -f "$agent_file" ]] || continue
-  if grep -E -q '\b(allowedTools|includeMcpJson|toolsSettings)\b' "$agent_file"; then
+  if grep -E -q '\b(allowedTools|includeMcpJson)\b' "$agent_file"; then
     die "IDE-incompatible agent written: $agent_file"
   fi
 done
@@ -171,7 +171,7 @@ CLI:       node $CLI
 Kiro checklist:
   1) Reload window
   2) Trust workspace if prompted
-  3) Agent picker → Workspace → Scout
+  3) Agent picker → Default (spawn Scout to gather)
   4) Hook UI → enable fastpath-auto-context
   5) Effort: Scout → /effort low · Architect → /effort medium
 

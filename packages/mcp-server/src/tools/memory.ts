@@ -85,8 +85,8 @@ export const memoryRecallTool: Tool = {
 export const memoryTool: Tool = {
   name: 'memory',
   description:
-    'Project memory. op=recall past decisions/facts; op=save one durable line; ' +
-    'op=list recent memories; op=forget by id (text = numeric id).',
+    'Project notes. op=recall (default) | save | list | forget. ' +
+    'forget: text = numeric id. Not for source lookup — use find.',
   inputSchema: {
     type: 'object',
     properties: {

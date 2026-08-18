@@ -79,7 +79,7 @@ Usage:
   fastpath repair-native                 Rebuild better-sqlite3 / onnx / sharp
   fastpath home|version|metrics [--summary|--tokens]
   fastpath memory list|forget <id>|distill [workspace]
-  fastpath viz [workspace] [--no-open] [--out file.html]
+  fastpath viz [workspace] [--no-open] [--out file.html]  # HTML report: this project + all FastPath
 
 Env:
   FASTPATH_HOME        Install root (default ~/kiro-fastpath)
@@ -107,7 +107,7 @@ function printKiroChecklist(): void {
   console.log('Kiro checklist:');
   console.log('  1) Reload window (Cmd+Shift+P → Developer: Reload Window)');
   console.log('  2) Trust workspace if prompted (required for .kiro/agents)');
-  console.log('  3) Default agent is primary; Scout ≤5 files · Architect 6+ when needed');
+  console.log('  3) Default agent is primary; spawn Scout to gather · Architect 6+ when needed');
   console.log('  4) Hook UI → enable all fastpath-* hooks');
   console.log('  5) Effort: Scout → /effort low · Architect → /effort medium');
 }
@@ -515,7 +515,7 @@ function cmdInstallKiro(
 
   console.log(`Installed Kiro FastPath pack into ${workspace}`);
   console.log(`FastPath home: ${home}`);
-  console.log('- .kiro/agents/Scout.md (≤5 files, /scout)');
+  console.log('- .kiro/agents/Scout.md (gatherer sub-agent, /scout)');
   console.log('- .kiro/agents/Architect.md (6+ files / design, /architect)');
   console.log('- .kiro/steering/fastpath.md (always-on retrieval)');
   console.log('- .kiro/steering/caveman.md (always-on output style)');
@@ -527,7 +527,7 @@ function cmdInstallKiro(
   console.log('- .kiro/settings/mcp.json (fastpath server)');
   console.log('');
   console.log('Critical:');
-  console.log('1) Default agent is primary — Scout ≤5 / Architect 6+ when scope fits');
+  console.log('1) Default agent is primary — spawn Scout to gather · Architect 6+ when scope fits');
   console.log('2) Confirm all fastpath-* hooks are enabled in Kiro Hook UI');
   console.log('3) Run: fastpath warm && FASTPATH_EMBED=minilm fastpath index && fastpath doctor');
   console.log('4) Optional long sessions: fastpath watch');
@@ -754,9 +754,9 @@ function cmdUpgrade(opts: { from?: string; rewire?: boolean } = {}): void {
     }
   }
   const scout = readFileSync(join(home, 'packages/agent-pack/agents/Scout.md'), 'utf8');
-  if (!/at most 5/.test(scout) || !/claude-sonnet-4\.5/.test(scout)) {
+  if (!/context-gathering/.test(scout) || !/claude-haiku-4\.5/.test(scout)) {
     console.error(
-      'Upgrade incomplete — Scout.md still looks old (expected Scout ≤5 + claude-sonnet-4.5)',
+      'Upgrade incomplete — Scout.md still looks old (expected gatherer + claude-haiku-4.5)',
     );
     process.exit(2);
   }

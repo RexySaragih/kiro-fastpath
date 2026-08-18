@@ -38,4 +38,4 @@ Legacy names (`search`, `symbol`, `context_for_task`, `grep_fast`, `memory_save`
 
 - Reads source files under the workspace
 - Index may be stale until `fastpath index`
-- Disable unused MCP servers when using Scout agent
+- Disable unused MCP servers — Default inherits every tool schema

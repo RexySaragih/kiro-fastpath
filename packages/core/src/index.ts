@@ -67,6 +67,7 @@ export {
   recentSymbols,
   listIndexedPaths,
   expandQueryTerms,
+  extractQuerySignals,
   zeroHitLadder,
 } from './search/query.js';
 export { grepFast } from './search/grep.js';

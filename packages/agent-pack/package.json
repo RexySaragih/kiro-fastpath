@@ -2,5 +2,5 @@
   "name": "@fastpath/agent-pack",
   "version": "1.0.0",
   "private": true,
-  "description": "Kiro Scout/Architect agents + steering templates for FastPath"
+  "description": "Kiro Scout (gatherer) / Architect agents + steering templates for FastPath"
 }

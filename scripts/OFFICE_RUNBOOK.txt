@@ -32,7 +32,7 @@ This creates .fastpath/index.db + .kiro agents/hooks/mcp for that repo.
 ---------------------
   1. Reload window
   2. Trust workspace if prompted (required for .kiro/agents)
-  3. Chat agent picker → Default (daily) or Workspace → Scout (≤5) / Architect (6+)
+  3. Chat agent picker → Default (daily) or Workspace → Architect (6+). Spawn Scout to gather when inject misses.
   4. Hook UI → enable "fastpath-auto-context"
   5. Effort: Scout → /effort low · Architect → /effort medium
 
@@ -43,7 +43,7 @@ Re-run: fastpath repair-kiro /path/to/repo
 4) Agents
 ---------
   Default      — primary daily (AGENTS.md + inject + shell verify)
-  Scout.md     — claude-sonnet-4.5, /effort low — locate→edit (max 5 files, no shell)
+  Scout.md     — claude-haiku-4.5, /effort low — gatherer sub-agent (read-only citations)
   Architect.md — claude-sonnet-4.5, /effort medium — 6+ files (+ shell/subagent)
   Effort is session-level in Kiro; set /effort when switching agents.
   Scout.json / Marshal.md / Router.md are NOT installed (legacy removed on rewire).

@@ -22,7 +22,6 @@ import {
   writeContext,
   workspaceFromPayload,
 } from './hook-util.js';
-import { CAVEMAN_OUTPUT_NUDGE, PONYTAIL_CODE_NUDGE } from './agents-md.js';
 import { appendMetric, resetLedgerState } from './metrics.js';
 import { readTurnState } from './state.js';
 
@@ -97,16 +96,13 @@ async function run(): Promise<void> {
 
   if (!stats.files) {
     writeContext(
-      `## FastPath session\n\n${CAVEMAN_OUTPUT_NUDGE}\n${PONYTAIL_CODE_NUDGE}\n\nIndex empty at \`${workspace}\`. Ask the user to run \`fastpath index\` before coding.\n`,
+      `## FastPath session\n\nIndex empty at \`${workspace}\`. Ask the user to run \`fastpath index\` before coding.\n`,
     );
     return;
   }
 
   const lines = [
-    '## FastPath session (auto-injected)',
-    '',
-    CAVEMAN_OUTPUT_NUDGE,
-    PONYTAIL_CODE_NUDGE,
+    '## FastPath session',
     '',
     `Workspace: \`${workspace}\` · indexed files=${stats.files} symbols=${stats.symbols} · indexedAt=${stats.indexedAt}`,
   ];
@@ -139,7 +135,7 @@ async function run(): Promise<void> {
   lines.push(
     '',
     'Locate code with FastPath (injected context or MCP: find / impact / window / memory).',
-    'Default agent: verify with shell OK. Scout ≤5 files (no shell). Architect 6+ / design.',
+    'Default agent: edit + shell OK. Spawn Scout to gather when inject misses. Architect 6+ / design.',
     'Do NOT walk the repo with listDirectory/glob.',
   );
 

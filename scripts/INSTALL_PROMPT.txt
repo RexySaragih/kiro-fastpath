@@ -26,11 +26,12 @@ ONE HOME, MANY REPOS
 - Each project keeps its own .fastpath/index.db and .kiro/ wiring.
 
 AGENTS
-- Scout = daily default — model claude-sonnet-4.5, session /effort low.
-- Architect = bigger work — model claude-sonnet-4.5, session /effort medium.
+- Scout = context-gatherer sub-agent — model claude-haiku-4.5, session /effort low. Read-only.
+- Architect = bigger work — model claude-sonnet-4.5, session /effort medium. Can spawn Scout.
 - Effort is NOT per-agent in Kiro; run /effort when switching agents.
-- NEVER put allowedTools / includeMcpJson / toolsSettings in agent files —
+- NEVER put allowedTools / includeMcpJson in agent files —
   Kiro IDE silently drops the agent. doctor must say "Agent pack IDE-compatible".
+  toolsSettings.subagent is allowed (Architect trusts Scout).
 
 KIRO ONLY USES FASTPATH WHEN ALL THREE EXIST
 1) UserPromptSubmit hook fastpath-auto-context (auto-inject STDOUT)
@@ -77,5 +78,5 @@ C) Verify
    node "$FASTPATH_HOME/packages/cli/dist/index.js" doctor /path/to/your-repo
    Expect: SCOUT READY
 
-HUMAN: Reload Kiro → trust workspace → Workspace → Scout → enable fastpath-auto-context
+HUMAN: Reload Kiro → trust workspace → Default (spawn Scout to gather) → enable fastpath-auto-context
        Scout: /effort low · Architect: /effort medium

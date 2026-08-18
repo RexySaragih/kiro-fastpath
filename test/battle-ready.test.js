@@ -129,6 +129,33 @@ test('doctor --json includes battle-ready fields', () => {
   }
 });
 
+test('doctor notes extra MCP servers besides FastPath', () => {
+  const dir = fixtureWs();
+  try {
+    assert.equal(spawnSync(process.execPath, [cli, 'init', dir], { encoding: 'utf8', env }).status, 0);
+    assert.equal(spawnSync(process.execPath, [cli, 'index', dir], { encoding: 'utf8', env }).status, 0);
+    assert.equal(
+      spawnSync(process.execPath, [cli, 'install-kiro', dir], { encoding: 'utf8', env }).status,
+      0,
+    );
+    const mcpPath = join(dir, '.kiro/settings/mcp.json');
+    const mcp = JSON.parse(readFileSync(mcpPath, 'utf8'));
+    mcp.mcpServers.github = { command: 'npx', args: ['-y', 'fake'], disabled: false };
+    writeFileSync(mcpPath, JSON.stringify(mcp));
+    const doc = spawnSync(process.execPath, [cli, 'doctor', dir, '--json'], {
+      encoding: 'utf8',
+      env,
+    });
+    assert.equal(doc.status, 0, doc.stdout + doc.stderr);
+    const json = JSON.parse(doc.stdout);
+    const notes = (json.notes ?? []).join('\n');
+    assert.match(notes, /extra MCP server/);
+    assert.match(notes, /includeMcpJson:false/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('eval --office passes on fixture', () => {
   const r = spawnSync(process.execPath, [cli, 'eval', '--office'], {
     encoding: 'utf8',

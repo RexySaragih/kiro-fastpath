@@ -34,9 +34,9 @@ sequenceDiagram
   Map-->>FastPath: Short list of paths + snippets
   FastPath-->>Kiro: Inject that short list<br/>(not the whole repo)
 
-  alt Small edit (1–3 files)
-    Kiro->>Kiro: Hand off to Scout
-    Kiro->>You: Edit done
+  alt Inject missed or deeper search needed
+    Kiro->>Kiro: Spawn Scout (gatherer)
+    Kiro->>You: Edit from Scout citations
   else Bigger change (many files)
     Kiro->>Kiro: Hand off to Architect
     Kiro->>You: Edit done
@@ -55,7 +55,7 @@ sequenceDiagram
 1. FastPath keeps a **local map** of your project (and short notes from past turns).
 2. Every time you send a message, it **looks up** a few matching files — not the whole tree.
 3. Those results are **pasted into Kiro’s context** automatically.
-4. You pick **Scout** (small edit) or **Architect** (bigger work).
+4. Default **edits**. Spawn **Scout** when inject missed; **Architect** for bigger work.
 5. When a turn ends, FastPath **remembers** what changed so the next session starts smarter.
 
 ## How is this different?
@@ -106,7 +106,7 @@ Indexing alone does nothing. Kiro only uses FastPath when all four exist:
 3. **Tool binding** — agents have inline `mcpServers.fastpath` + `tools: [..., "@fastpath"]`.
 4. **Behavior** — steering + agent prompts: max ~3 file reads, no repo walks, recall memory before re-deriving.
 
-`install-target` / `use` / `install-kiro` install all of it. Then select **Scout** and enable the hooks in Kiro Hook UI.
+`install-target` / `use` / `install-kiro` install all of it. Then stay on **Default** (spawn Scout to gather) and enable the hooks in Kiro Hook UI.
 
 ## Quick start (git — recommended)
 
@@ -132,7 +132,7 @@ bash "$FASTPATH_HOME/scripts/install-target.sh" /path/to/your-repo
 **In Kiro:**
 
 1. Reload window
-2. Agent picker → **Workspace → Scout** (daily) or **Architect** (multi-file)
+2. Agent picker → **Default** (daily) or **Architect** (multi-file). Spawn **Scout** to gather when inject misses.
 3. Hook UI → enable all **fastpath-\*** hooks
 4. Disable other MCP servers for daily work
 
@@ -166,18 +166,18 @@ bash scripts/install-target.sh /path/to/your/repo
 
 ## Agents
 
-| Agent         | Model             | Effort (session) | Use for                                    |
-| ------------- | ----------------- | ---------------- | ------------------------------------------ |
-| **Scout**     | `claude-sonnet-4.5` | `/effort low`    | Locate → edit, max **5** files (no shell) |
-| **Architect** | `claude-sonnet-4.5` | `/effort medium` | **6+** files / design (+ shell / subagent) |
+| Agent         | Model               | Effort (session) | Use for                                                          |
+| ------------- | ------------------- | ---------------- | ---------------------------------------------------------------- |
+| **Scout**     | `claude-haiku-4.5`  | `/effort low`    | Context-gatherer **sub-agent** — read-only, structured citations |
+| **Architect** | `claude-sonnet-4.5` | `/effort medium` | **6+** files / design (+ shell / can spawn Scout)                |
 
-**Default agent** (Kiro built-in) is the primary daily surface — full tools + FastPath via `AGENTS.md` / inject. Prefer Scout when scope ≤5 files; Architect when 6+ or design-heavy.
+**Default agent** (Kiro built-in) is the primary daily surface — full tools + FastPath via `AGENTS.md` / inject. Spawn Scout when auto-inject misses; Architect when 6+ or design-heavy. Default handles small edits + shell verify.
 
 Kiro binds effort per session/model, not per agent — set `/effort` when you switch agents.
 
 **Caveman full by default** (agent system prompt first + `.kiro/steering/caveman.md` + Scout/Architect `resources`; slash `/caveman` to refresh): ~60–75% less prose — fragments OK, drop articles when clear. Soften with `caveman lite` or ask “elaborate” for the long version.
 
-Do not add CLI-only fields (`allowedTools`, `includeMcpJson`) to agent markdown — Kiro IDE will hide the agent.
+Do not add CLI-only fields (`allowedTools`, `includeMcpJson`) to agent markdown — Kiro IDE will hide the agent. `toolsSettings.subagent` is allowed (Architect trusts Scout).
 
 ## CLI
 
@@ -197,7 +197,7 @@ fastpath eval [--office|--golden]         # smoke, office goldens, or graded met
 fastpath bench [workspace] [--tasks f.json]  # tokens injected vs baseline discovery
 fastpath home|version|metrics [--summary|--tokens]
 fastpath memory list|forget <id>|distill [workspace]
-fastpath viz [workspace] [--no-open] [--out file.html]   # local HTML dashboard of the index
+fastpath viz [workspace] [--no-open] [--out file.html]   # HTML report: this project + all FastPath
 ```
 
 Env (also set by install into MCP/hook):
@@ -251,7 +251,7 @@ npm run eval                             # or eval:office for office golden quer
 npm run eval:golden                      # graded metrics (FASTPATH_ALLOW_HASH=1)
 npm run audit:critical
 node packages/cli/dist/index.js doctor /path/to/your/repo
-fastpath viz /path/to/your/repo          # local HTML dashboard of the index
+fastpath viz /path/to/your/repo          # HTML report: this project + all FastPath
 ```
 
 Expect doctor: **SCOUT READY**.

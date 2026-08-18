@@ -13,8 +13,8 @@ Complete before tagging / announcing 1.0 on a new machine set.
     Expect: exit 0, SCOUT READY, embedBackend=minilm, search smoke OK
 
 [ ] 2. Kiro UI (machine A)
-    Reload → trust workspace → Scout → enable fastpath-auto-context
-    /effort low
+    Reload → trust workspace → Default → enable fastpath-auto-context
+    Spawn Scout when inject misses. /effort low on Scout.
     Prompt (do NOT say FastPath): locate a known symbol; ≤3 file reads; no repo walk
     Pass: hook injected context and/or MCP tools used
 

@@ -179,10 +179,13 @@ export const impactTool: Tool = {
 export const findTool: Tool = {
   name: 'find',
   description:
-    'Locate code in the indexed repo instead of listDirectory/glob/grep. ' +
-    'Returns focused code windows (path:start-end + body) — prefer these over whole-file reads. ' +
-    'Use `window` if you need a few more lines. ' +
-    'mode: search=concept, symbol=identifier, grep=regex in file contents, context=task starter pack.',
+    'Code lookup. Pick a mode:\n' +
+    '- mode=symbol → identifier name (e.g. AuthService)\n' +
+    '- mode=grep → exact string/regex in file content\n' +
+    '- mode=search → fuzzy concept ("login flow")\n' +
+    '- mode=context → coding-task starter pack\n' +
+    'Default mode=search. Returns windows (path:start-end + body). ' +
+    'Then use window for more lines. Never listDirectory/glob.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -190,7 +193,7 @@ export const findTool: Tool = {
       mode: {
         type: 'string',
         enum: ['search', 'symbol', 'grep', 'context'],
-        description: 'Default search.',
+        description: 'symbol=name, grep=literal, search=concept, context=task pack. Default search.',
       },
       kind: { type: 'string', enum: [...SYMBOL_KINDS], description: 'mode=symbol filter.' },
       top_k: { type: 'number', description: `Max results (8, cap ${HARD_MAX_TOP_K}).` },
@@ -198,6 +201,11 @@ export const findTool: Tool = {
     },
     required: ['query'],
     additionalProperties: false,
+    examples: [
+      { query: 'AuthService', mode: 'symbol' },
+      { query: 'describe\\(', mode: 'grep' },
+      { query: 'how is auth validated', mode: 'search' },
+    ],
   },
   annotations: READ_ONLY,
 };

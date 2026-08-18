@@ -4,12 +4,12 @@
 
 You are on Kiro **Default** — full tools (shell OK for verify). Prefer FastPath retrieve before walks.
 
-1. Use auto-injected `## FastPath retrieved context` / `## FastPath memory` when present.
-2. If `## NO_MATCH` — ask for a path/symbol or call FastPath `find`; do **not** edit from recency alone.
+1. Use auto-injected `## FastPath` / `## FastPath memory` when present.
+2. If `## NO_MATCH` or weak hits — spawn **Scout** (context-gatherer sub-agent) for deeper FastPath search. Do **not** edit from recency alone. If Scout confidence is `partial`/`none`, verify with `find`/`window` before editing.
 3. Else MCP: `find` / `impact` / `window` / `memory`. Prefer windows over whole-file reads.
 4. Never listDirectory/glob the repo for discovery — guardrail blocks unscoped walks.
 
-**Routing nudge:** ≤5 files → prefer agent **Scout** (tight locate→edit, no shell). 6+ files / design / impact-heavy → prefer **Architect**. Stay on Default when you need shell verify on a small edit.
+**Context gather:** Scout is a **read-only** sub-agent (cheap model), not an editor. Spawn Scout when you need exploration. Do **not** spawn Scout when auto-inject already provided strong hits, the user gave an explicit path, or the prompt is tiny. 6+ files / design / impact-heavy → prefer **Architect**. Default handles edits + shell verify directly.
 
 **Debug loop:** paste failure stderr → `find` mode=grep on unique tokens → `window` around fail → fix → re-run test/lint here on Default.
 

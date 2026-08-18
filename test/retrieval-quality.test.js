@@ -74,13 +74,23 @@ test('body-level matches carry a line anchor (no line: null file hits)', async (
 });
 
 test('query terms are tokenized and synonym-expanded', async () => {
-  const { expandQueryTerms } = await import(
+  const { expandQueryTerms, extractQuerySignals } = await import(
     join(root, 'packages/core/dist/search/query.js')
   );
   const terms = expandQueryTerms('validateJwt');
   assert.ok(terms.includes('validate'), terms.join(','));
   assert.ok(terms.includes('jwt'), terms.join(','));
   assert.ok(expandQueryTerms('login flow').includes('auth'));
+  assert.ok(expandQueryTerms('middleware layer').includes('interceptor'));
+  assert.ok(expandQueryTerms('deploy pipeline').includes('release'));
+
+  const signals = extractQuerySignals(
+    'please fix `AuthService` in src/auth.ts and check validateJwt',
+  );
+  assert.ok(signals.includes('AuthService'), signals.join(','));
+  assert.ok(signals.includes('src/auth.ts'), signals.join(','));
+  assert.ok(signals.includes('validateJwt'), signals.join(','));
+  assert.deepEqual(extractQuerySignals('how does this work in general'), []);
 });
 
 test('context pack merges per file and respects a token budget', async () => {

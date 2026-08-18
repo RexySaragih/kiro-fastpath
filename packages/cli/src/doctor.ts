@@ -26,10 +26,14 @@ import { readHeartbeats, type HookName } from './hook-util.js';
 
 const coreRequire = createRequire(join(PACKAGE_ROOT, 'packages/core/package.json'));
 
-const IDE_UNSUPPORTED_AGENT_FIELDS = ['allowedTools', 'includeMcpJson', 'toolsSettings'] as const;
+/** CLI-only fields that hide the agent in Kiro IDE. toolsSettings.subagent is valid in Kiro 1.0. */
+const IDE_UNSUPPORTED_AGENT_FIELDS = ['allowedTools', 'includeMcpJson'] as const;
 
 /** Tool tags mistaken for permission capabilities (breaks Kiro agent-profile load). */
 const INVALID_PERMISSION_CAPABILITIES = ['write', 'read', 'web'] as const;
+
+/** FastPath ListTools surface — keep in sync with mcp-server advertised tools. */
+const FASTPATH_ADVERTISED_TOOLS = 4;
 
 export function findIdeUnsupportedAgentFields(body: string): string[] {
   return IDE_UNSUPPORTED_AGENT_FIELDS.filter((field) =>
@@ -207,9 +211,13 @@ function checkAgentFile(
     ok.push(`${label} wires /caveman skill`);
   }
   if (!body.includes(PONYTAIL_SKILL_RESOURCE)) {
-    issues.push(
-      `${label} missing ponytail skill resource (\`${PONYTAIL_SKILL_RESOURCE}\`) — re-run \`fastpath install-kiro\``,
-    );
+    if (label === 'Scout') {
+      ok.push(`${label} skips /ponytail (gather-only, no code)`);
+    } else {
+      issues.push(
+        `${label} missing ponytail skill resource (\`${PONYTAIL_SKILL_RESOURCE}\`) — re-run \`fastpath install-kiro\``,
+      );
+    }
   } else {
     ok.push(`${label} wires /ponytail skill`);
   }
@@ -221,9 +229,13 @@ function checkAgentFile(
     ok.push(`${label} sets OUTPUT MODE caveman full`);
   }
   if (!/CODE MODE\s*=\s*ponytail full/i.test(body)) {
-    issues.push(
-      `${label} missing CODE MODE = ponytail full in system prompt — re-run \`fastpath install-kiro\``,
-    );
+    if (label === 'Scout') {
+      ok.push(`${label} skips CODE MODE ponytail (gather-only, no code)`);
+    } else {
+      issues.push(
+        `${label} missing CODE MODE = ponytail full in system prompt — re-run \`fastpath install-kiro\``,
+      );
+    }
   } else {
     ok.push(`${label} sets CODE MODE ponytail full`);
   }
@@ -544,7 +556,7 @@ export async function runDoctor(workspace: string): Promise<DoctorResult> {
   );
   notes.push(
     'Effort is session-level in Kiro (not per-agent) — Scout: /effort low · Architect: /effort medium. Default is primary daily agent.',
-    'Scout ≤5 files (shell deny); Architect 6+ / design; routing advisor is inject-only.',
+    'Scout = gatherer sub-agent (read-only); Architect 6+ / design; Default edits + shell; routing advisor is inject-only.',
   );
 
   const hookPath = join(workspace, '.kiro/hooks/fastpath-context.json');
@@ -640,8 +652,16 @@ export async function runDoctor(workspace: string): Promise<DoctorResult> {
       };
       const servers = mcp.mcpServers ?? {};
       const enabled = Object.entries(servers).filter(([, v]) => !v?.disabled);
+      const extra = enabled.filter(([name]) => name !== 'fastpath');
+      if (extra.length) {
+        notes.push(
+          `${extra.length} extra MCP server(s) besides FastPath (${extra.map(([n]) => n).join(', ')}) — Default inherits every tool schema (Kiro IDE has no Tool Search). Disable unused servers, or pin mcpServers on a custom Default agent with includeMcpJson:false.`,
+        );
+      } else if (enabled.length === 1 && servers.fastpath && !servers.fastpath.disabled) {
+        ok.push(`MCP tool surface: FastPath only (${FASTPATH_ADVERTISED_TOOLS} advertised tools)`);
+      }
       if (enabled.length > 3) {
-        issues.push(`${enabled.length} MCP servers enabled — keep FastPath-only for Scout speed`);
+        issues.push(`${enabled.length} MCP servers enabled — keep FastPath-only for gather speed`);
       } else {
         ok.push(`MCP servers enabled: ${enabled.length}`);
       }
@@ -779,7 +799,7 @@ export function printDoctor(result: DoctorResult, asJson: boolean): void {
   } else if (result.ready) {
     console.log('\nSCOUT READY');
     console.log(
-      'In Kiro: Default is primary. Scout ≤5 files · Architect 6+. Hook liveness verified by heartbeat.',
+      'In Kiro: Default is primary. Spawn Scout to gather when inject misses · Architect 6+. Hook liveness verified by heartbeat.',
     );
   } else {
     console.log(`\nNOT READY (${result.issues.length} issue(s))`);

@@ -16,10 +16,8 @@ const READ_ONLY = {
 export const windowTool: Tool = {
   name: 'window',
   description:
-    'Read a focused line-range from an indexed workspace file. ' +
-    'USE when: find/impact gave a path but you need a few more lines (or a known span). ' +
-    'DO NOT use when: you need to discover where code lives → use find first. ' +
-    'Prefer this over host whole-file reads. Caps apply (max lines/chars).',
+    'Read more lines of a known indexed path (path + start_line + end_line). ' +
+    'Prefer over whole-file reads. Use find first if you do not have a path.',
   inputSchema: {
     type: 'object',
     properties: {

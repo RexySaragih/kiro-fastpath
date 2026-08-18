@@ -8,38 +8,32 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { collectVizSnapshot, type CountRow, type VizSnapshot } from '@fastpath/core';
-import { readMetrics, tokenLedger } from './metrics.js';
+import {
+  collectDualMetrics,
+  healthClass,
+  isEphemeralWorkspace,
+  sameWorkspace,
+  UNTAGGED_WORKSPACE,
+  usageAdvice,
+  type HealthKind,
+  type VizMetricsSummary,
+  type WorkspaceUsageRow,
+} from './viz-scope.js';
+import {
+  escapeHtml,
+  kpiLabel,
+  sectionTitle,
+  type TipId,
+} from './viz-tooltips.js';
 
-export interface VizMetricsSummary {
-  events: number;
-  injects: number;
-  hitRate: number | null;
-  p50DeltaMs: number | null;
-  timeouts: number;
-  indexes: number;
-  doctors: number;
-  /** Measured: ceil(chars/4) of inject STDOUT. Null when no inject samples. */
-  injectedTokens: number | null;
-  /** Measured: MCP tool response tokens. Null when no mcp samples. */
-  mcpResponseTokens: number | null;
-  /** Sum of estimated avoid buckets. Null when no avoid-side samples. */
-  tokensAvoided: number | null;
-  avoidedBlockedWalk: number | null;
-  avoidedWindowVsFile: number | null;
-  avoidedDiscovery: number | null;
-  spentTokens: number | null;
-  /** avoided − spent (mixed honesty). Null when no spend/avoid samples. */
-  netTokens: number | null;
-  mcpCalls: number;
-  mcpOk: number;
-  walksSeen: number;
-  walksBlocked: number;
-  /** Short operational insight for the token panel. */
-  insight: string;
-}
+export type { VizMetricsSummary, WorkspaceUsageRow };
 
 export interface VizPageData extends VizSnapshot {
-  metrics: VizMetricsSummary;
+  projectMetrics: VizMetricsSummary;
+  globalMetrics: VizMetricsSummary;
+  workspaces: WorkspaceUsageRow[];
+  untaggedEvents: number;
+  eventMix: CountRow[];
   generatedAt: string;
 }
 
@@ -49,125 +43,41 @@ export interface VizOptions {
   openBrowser: boolean;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function ledgerInsight(args: {
-  injects: number;
-  mcpCalls: number;
-  mcpOk: number;
-  tokensAvoided: number;
-  spentTokens: number;
-  hasSamples: boolean;
-}): string {
-  if (!args.hasSamples) {
-    return 'No token samples yet — run a Kiro session with inject/MCP.';
-  }
-  if (args.mcpOk > 0 && args.tokensAvoided > 0) {
-    return 'MCP path credited — Avoided ≈ includes window/discover estimates.';
-  }
-  if (args.mcpCalls === 0 && args.tokensAvoided === 0 && args.injects > 0) {
-    return 'No MCP/walk credits yet — host walks or MCP calls drive Avoided ≈.';
-  }
-  if (args.tokensAvoided > 0 && args.tokensAvoided < args.spentTokens) {
-    return 'Net ≈ negative — spent exceeds estimated avoid; check components.';
-  }
-  if (args.tokensAvoided > args.spentTokens) {
-    return 'Net ≈ positive — estimated avoid exceeds measured spend.';
-  }
-  return 'Ledger mixes measured spend with estimated avoid buckets.';
-}
-
-function collectMetricsSummary(workspace?: string): VizMetricsSummary {
-  const events = readMetrics();
-  const allInjects = events.filter(
-    (e): e is Extract<(typeof events)[number], { type: 'inject' }> => e.type === 'inject',
-  );
-  // Scope to workspace: exact matches first, then legacy (no workspace), then all injects fallback.
-  const exactWsInjects = workspace ? allInjects.filter((i) => i.workspace === workspace) : [];
-  const legacyInjects = allInjects.filter((i) => !i.workspace);
-  const scopedInjects = exactWsInjects.length
-    ? exactWsInjects
-    : legacyInjects.length
-      ? legacyInjects
-      : allInjects;
-
-  let retrievalInjects = scopedInjects.filter((i) => !i.noPrompt);
-  let injects = scopedInjects;
-  if (!retrievalInjects.length && allInjects.some((i) => !i.noPrompt)) {
-    retrievalInjects = allInjects.filter((i) => !i.noPrompt);
-    injects = allInjects;
-  }
-
-  const indexes = events.filter((e) => e.type === 'index').length;
-  const doctors = events.filter((e) => e.type === 'doctor').length;
-  let hitRate: number | null = null;
-  let p50DeltaMs: number | null = null;
-  let timeouts = 0;
-  if (injects.length) {
-    hitRate = retrievalInjects.length
-      ? retrievalInjects.filter((i) => i.hits > 0).length / retrievalInjects.length
-      : null;
-    const deltas = [...injects.map((i) => i.deltaMs)].sort((a, b) => a - b);
-    p50DeltaMs = deltas[Math.floor(deltas.length / 2)] ?? 0;
-    timeouts = injects.filter((i) => i.timedOutDelta || i.timedOutRetrieve).length;
-  }
-  const ledger = tokenLedger(events, workspace);
-  const hasInjectSamples = ledger.injects > 0;
-  const hasMcpSamples = ledger.mcpCalls > 0;
-  const hasAvoidSamples =
-    ledger.walksSeen > 0 ||
-    ledger.avoidedWindowVsFile > 0 ||
-    ledger.avoidedDiscovery > 0 ||
-    hasMcpSamples;
-  const hasSamples = hasInjectSamples || hasMcpSamples || ledger.walksSeen > 0;
-  return {
-    events: events.length,
-    injects: injects.length,
-    hitRate,
-    p50DeltaMs,
-    timeouts,
-    indexes,
-    doctors,
-    injectedTokens: hasInjectSamples ? ledger.injectedTokens : null,
-    mcpResponseTokens: hasMcpSamples ? ledger.mcpResponseTokens : null,
-    tokensAvoided: hasAvoidSamples ? ledger.tokensAvoided : null,
-    avoidedBlockedWalk: hasAvoidSamples ? ledger.avoidedBlockedWalk : null,
-    avoidedWindowVsFile: hasAvoidSamples ? ledger.avoidedWindowVsFile : null,
-    avoidedDiscovery: hasAvoidSamples ? ledger.avoidedDiscovery : null,
-    spentTokens: hasSamples ? ledger.spentTokens : null,
-    netTokens: hasSamples ? ledger.net : null,
-    mcpCalls: ledger.mcpCalls,
-    mcpOk: ledger.mcpOk,
-    walksSeen: ledger.walksSeen,
-    walksBlocked: ledger.walksBlocked,
-    insight: ledgerInsight({
-      injects: ledger.injects,
-      mcpCalls: ledger.mcpCalls,
-      mcpOk: ledger.mcpOk,
-      tokensAvoided: ledger.tokensAvoided,
-      spentTokens: ledger.spentTokens,
-      hasSamples,
-    }),
-  };
-}
-
-/** Format ledger numbers for display — n/a when no samples. */
+/** Format ledger numbers — n/a only when no events in pane. */
 function formatLedgerTok(value: number | null): string {
   if (value == null) return 'n/a';
   return formatTokens(value);
 }
 
+export function formatHitAll(m: VizMetricsSummary): string {
+  if (m.events === 0) return 'n/a';
+  if (m.injects === 0) return '--';
+  if (m.retrievalInjects === 0) return '0% (no retrieval)';
+  return `${((m.hitRate ?? 0) * 100).toFixed(0)}%`;
+}
+
+export function formatHitCode(m: VizMetricsSummary): string {
+  if (m.events === 0) return 'n/a';
+  if (m.codeHitRate == null) return '--';
+  return `${(m.codeHitRate * 100).toFixed(0)}%`;
+}
+
+export function formatP50(m: VizMetricsSummary): string {
+  if (m.events === 0) return 'n/a';
+  if (m.p50DeltaMs == null) return '--';
+  return String(m.p50DeltaMs);
+}
+
+function valueClass(health?: HealthKind | null): string {
+  return health ? `v health-${health}` : 'v';
+}
+
 /** Format token counts with k/M suffix for viz. */
 export function formatTokens(count: number): string {
-  if (count >= 1_000_000) return (count / 1_000_000).toFixed(1) + 'M';
-  if (count >= 1_000) return (count / 1_000).toFixed(1) + 'k';
+  const sign = count < 0 ? '-' : '';
+  const abs = Math.abs(count);
+  if (abs >= 1_000_000) return sign + (abs / 1_000_000).toFixed(1) + 'M';
+  if (abs >= 1_000) return sign + (abs / 1_000).toFixed(1) + 'k';
   return String(count);
 }
 
@@ -247,24 +157,55 @@ function donutChart(rows: CountRow[], title: string): string {
   </div>`;
 }
 
-function hitRing(hitRate: number | null): string {
-  const pct = hitRate == null ? 0 : Math.round(hitRate * 100);
+function usageRing(m: VizMetricsSummary): string {
   const r = 30;
-  const c = 2 * Math.PI * r;
-  const dash = hitRate == null ? 0 : (pct / 100) * c;
-  const label = hitRate == null ? 'n/a' : `${pct}%`;
-  return `<div class="hit-ring">
+  const circ = 2 * Math.PI * r;
+  let rate = 0;
+  let caption = 'hit';
+  if (m.hitRate != null) {
+    rate = m.hitRate;
+    caption = 'hit';
+  } else if (m.mcpCalls > 0) {
+    rate = m.mcpOk / m.mcpCalls;
+    caption = 'mcp';
+  }
+  const pct = Math.round(rate * 100);
+  const dash = (pct / 100) * circ;
+  return `<div class="hit-ring" data-ring="${caption}">
     <svg viewBox="0 0 80 80" width="80" height="80" aria-hidden="true">
       <circle cx="40" cy="40" r="${r}" fill="none" stroke="rgba(42,38,34,0.08)" stroke-width="5"/>
       <circle cx="40" cy="40" r="${r}" fill="none" stroke="#e8a54b" stroke-width="5"
-        stroke-linecap="round" stroke-dasharray="${dash} ${c}"
+        stroke-linecap="round" stroke-dasharray="${dash} ${circ}"
         transform="rotate(-90 40 40)"/>
     </svg>
-    <div class="hit-ring-label"><strong>${label}</strong><span>hit</span></div>
+    <div class="hit-ring-label"><strong>${pct}%</strong><span>${escapeHtml(caption)}</span></div>
   </div>`;
 }
 
-function injectMetricsBlock(m: VizMetricsSummary, hit: string): string {
+function kpiCell(id: TipId, value: string, health?: HealthKind | null): string {
+  return `<div class="kpi">${kpiLabel(id)}<span class="${valueClass(health)}">${value}</span></div>`;
+}
+
+function statCard(id: TipId, value: string, health?: HealthKind | null): string {
+  return `<div class="stat">${kpiLabel(id, 'div')}<div class="${valueClass(health)}">${value}</div></div>`;
+}
+
+function formatCoverage(vectors: number, symbols: number): string {
+  if (!symbols) return '--';
+  return `${Math.round((vectors / symbols) * 100)}%`;
+}
+
+function ledgerStrip(m: VizMetricsSummary): string {
+  const netHealth = m.events ? healthClass('net', m.netTokens ?? 0) : null;
+  return `<div class="grid-stats-ledger">
+    ${statCard('injected', formatLedgerTok(m.injectedTokens))}
+    ${statCard('mcpOut', formatLedgerTok(m.mcpResponseTokens))}
+    ${statCard('avoided', formatLedgerTok(m.tokensAvoided))}
+    ${statCard('net', formatLedgerTok(m.netTokens), netHealth)}
+  </div>`;
+}
+
+function injectMetricsBlock(m: VizMetricsSummary): string {
   const vals = [m.events, m.injects, m.indexes, m.doctors];
   const max = Math.max(...vals, 1);
   const spark = vals
@@ -274,28 +215,102 @@ function injectMetricsBlock(m: VizMetricsSummary, hit: string): string {
       return `<rect x="${x}" y="${40 - h}" width="10" height="${h}" fill="${i === 1 ? '#e8a54b' : '#a1a1aa'}" rx="1"/>`;
     })
     .join('');
+  const hitHealth =
+    m.retrievalInjects > 0 ? healthClass('hitRate', m.hitRate) : null;
+  const codeHealth =
+    m.codeHitRate != null ? healthClass('hitRate', m.codeHitRate) : null;
+  const timeoutHealth = m.events ? healthClass('timeouts', m.timeouts) : null;
+  const mcpHealth =
+    m.mcpCalls > 0 ? healthClass('mcpOk', m.mcpOk / m.mcpCalls) : null;
   return `<div class="inject-grid">
-    ${hitRing(m.hitRate)}
+    ${usageRing(m)}
     <div>
       <svg class="diagram spark" viewBox="0 0 78 44" width="78" height="44" aria-hidden="true">${spark}</svg>
       <div class="kpi-grid">
-        <div class="kpi"><span class="k">Events</span><span class="v">${m.events}</span></div>
-        <div class="kpi"><span class="k">Injects</span><span class="v">${m.injects}</span></div>
-        <div class="kpi"><span class="k">Hit rate</span><span class="v">${hit}</span></div>
-        <div class="kpi"><span class="k">p50 Δ ms</span><span class="v">${m.p50DeltaMs ?? 'n/a'}</span></div>
-        <div class="kpi"><span class="k">Timeouts</span><span class="v">${m.timeouts}</span></div>
-        <div class="kpi"><span class="k">Index / doctor</span><span class="v">${m.indexes} / ${m.doctors}</span></div>
-        <div class="kpi"><span class="k">MCP ok</span><span class="v">${m.mcpOk}/${m.mcpCalls}</span></div>
-        <div class="kpi"><span class="k">Walks blocked</span><span class="v">${m.walksBlocked}/${m.walksSeen}</span></div>
-        <div class="kpi"><span class="k">Spent</span><span class="v">${formatLedgerTok(m.spentTokens)}</span></div>
-        <div class="kpi"><span class="k">Walk block ≈</span><span class="v">${formatLedgerTok(m.avoidedBlockedWalk)}</span></div>
-        <div class="kpi"><span class="k">Window vs file ≈</span><span class="v">${formatLedgerTok(m.avoidedWindowVsFile)}</span></div>
-        <div class="kpi"><span class="k">Discover ≈</span><span class="v">${formatLedgerTok(m.avoidedDiscovery)}</span></div>
+        ${kpiCell('events', String(m.events))}
+        ${kpiCell('injects', String(m.injects))}
+        ${kpiCell('injectHit', formatHitAll(m), hitHealth)}
+        ${kpiCell('injectHitCode', formatHitCode(m), codeHealth)}
+        ${kpiCell('p50Delta', formatP50(m))}
+        ${kpiCell('timeouts', String(m.timeouts), timeoutHealth)}
+        ${kpiCell('indexDoctor', `${m.indexes} / ${m.doctors}`)}
+        ${kpiCell('mcpOk', `${m.mcpOk}/${m.mcpCalls}`, mcpHealth)}
+        ${kpiCell('walksBlocked', `${m.walksBlocked}/${m.walksSeen}`)}
+        ${kpiCell('spent', formatLedgerTok(m.spentTokens))}
+        ${kpiCell('walkBlock', formatLedgerTok(m.avoidedBlockedWalk))}
+        ${kpiCell('windowVsFile', formatLedgerTok(m.avoidedWindowVsFile))}
+        ${kpiCell('discover', formatLedgerTok(m.avoidedDiscovery))}
       </div>
       <p class="muted ledger-legend">Injected/MCP out = measured · Avoided buckets = estimate (deduped paths, discovery once/session)</p>
       <p class="ledger-insight">${escapeHtml(m.insight)}</p>
     </div>
   </div>`;
+}
+
+function usageBody(m: VizMetricsSummary, emptyCopy?: string): string {
+  if (emptyCopy && m.events === 0) {
+    return `<p class="muted">${escapeHtml(emptyCopy)}</p>`;
+  }
+  return `${ledgerStrip(m)}${injectMetricsBlock(m)}`;
+}
+
+function workspaceRowsHtml(rows: WorkspaceUsageRow[], current: string): string {
+  return rows
+    .map((r) => {
+      const currentCls =
+        r.workspace !== UNTAGGED_WORKSPACE && sameWorkspace(r.workspace, current)
+          ? ' class="is-current"'
+          : '';
+      return `<tr${currentCls}>
+        <td class="mono path">${escapeHtml(r.workspace)}</td>
+        <td class="num">${r.injects}</td>
+        <td class="num">${r.mcpCalls}</td>
+        <td class="num">${formatLedgerTok(r.spentTokens)}</td>
+        <td class="num">${formatLedgerTok(r.netTokens)}</td>
+      </tr>`;
+    })
+    .join('\n');
+}
+
+function workspaceTable(rows: WorkspaceUsageRow[], current: string): string {
+  if (!rows.length) return '<p class="muted">No journal events yet.</p>';
+  const real = rows.filter((r) => !isEphemeralWorkspace(r.workspace));
+  const eph = rows.filter((r) => isEphemeralWorkspace(r.workspace));
+  const head =
+    '<thead><tr><th>Workspace</th><th>Injects</th><th>MCP</th><th>Spent</th><th>Net ≈</th></tr></thead>';
+  const realTable = real.length
+    ? `<table>${head}<tbody>${workspaceRowsHtml(real, current)}</tbody></table>`
+    : '<p class="muted">No durable workspaces in the journal.</p>';
+  if (!eph.length) return realTable;
+  const spent = eph.reduce((s, r) => s + (r.spentTokens ?? 0), 0);
+  const injects = eph.reduce((s, r) => s + r.injects, 0);
+  const mcp = eph.reduce((s, r) => s + r.mcpCalls, 0);
+  return `${realTable}
+    <details class="ephemeral-ws">
+      <summary>Ephemeral (${eph.length}) — ${injects} injects · ${mcp} MCP · spent ${formatTokens(spent)}</summary>
+      <table>${head}<tbody>${workspaceRowsHtml(eph, current)}</tbody></table>
+    </details>`;
+}
+
+function adviceBlock(
+  m: VizMetricsSummary,
+  opts: { workspace?: string; coveragePct?: number | null } = {},
+): string {
+  const lines = usageAdvice(m, opts);
+  if (!lines.length) return '';
+  const items = lines
+    .map((line) => {
+      const split = line.match(/^(Run: |Consider: )(.+)$/);
+      if (split) {
+        return `<li>${escapeHtml(split[1]!)}<code>${escapeHtml(split[2]!)}</code></li>`;
+      }
+      return `<li>${escapeHtml(line)}</li>`;
+    })
+    .join('');
+  return `<section class="panel full advice-panel">
+    ${sectionTitle('actions')}
+    <ul class="advice-list">${items}</ul>
+  </section>`;
 }
 
 function openInBrowser(filePath: string): void {
@@ -313,19 +328,16 @@ function openInBrowser(filePath: string): void {
 
 export function buildVizPageData(workspace: string): VizPageData {
   const snap = collectVizSnapshot(workspace);
+  const dual = collectDualMetrics(workspace);
   return {
     ...snap,
-    metrics: collectMetricsSummary(workspace),
+    ...dual,
     generatedAt: new Date().toISOString(),
   };
 }
 
 export function renderVizHtml(data: VizPageData): string {
   const s = data.summary;
-  const hit =
-    data.metrics.hitRate == null
-      ? 'n/a'
-      : `${(data.metrics.hitRate * 100).toFixed(0)}%`;
   const graphJson = JSON.stringify(data.callGraph);
   const memBlock = data.memories.length
     ? data.memories
@@ -358,6 +370,8 @@ export function renderVizHtml(data: VizPageData): string {
     })
     .join('\n');
 
+  const coverageRatio = s.symbols ? s.vectors / s.symbols : null;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -376,6 +390,8 @@ export function renderVizHtml(data: VizPageData): string {
     --accent-2: #d97706;
     --accent-dim: rgba(232, 165, 75, 0.14);
     --ok: #0f766e;
+    --warn: #d97706;
+    --bad: #dc2626;
     --shadow: 0 1px 0 rgba(24, 24, 27, 0.03), 0 8px 24px rgba(24, 24, 27, 0.04);
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
@@ -473,12 +489,14 @@ export function renderVizHtml(data: VizPageData): string {
     grid-template-columns: repeat(4, 1fr);
     gap: 12px;
     margin-bottom: 12px;
+    overflow: visible;
   }
   .grid-stats-ledger {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 12px;
     margin-bottom: 28px;
+    overflow: visible;
   }
   .ledger-legend {
     margin: 10px 0 0;
@@ -502,8 +520,9 @@ export function renderVizHtml(data: VizPageData): string {
     box-shadow: var(--shadow);
     padding: 16px 16px 14px;
     position: relative;
-    overflow: hidden;
+    overflow: visible;
   }
+  .stat:hover, .stat:focus-within { z-index: 8; }
   .stat::after {
     content: "";
     position: absolute;
@@ -517,6 +536,8 @@ export function renderVizHtml(data: VizPageData): string {
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
+    display: flex;
+    align-items: center;
   }
   .stat .v {
     margin-top: 8px;
@@ -542,6 +563,8 @@ export function renderVizHtml(data: VizPageData): string {
     border: 1px solid var(--line);
     box-shadow: var(--shadow);
     padding: 18px 18px 16px;
+    overflow: visible;
+    position: relative;
   }
   h2 {
     margin: 0 0 14px;
@@ -553,7 +576,11 @@ export function renderVizHtml(data: VizPageData): string {
     display: flex;
     align-items: center;
     gap: 8px;
+    position: relative;
+    overflow: visible;
+    z-index: 1;
   }
+  h2:hover, h2:focus-within { z-index: 8; }
   h2::before {
     content: "";
     width: 8px;
@@ -635,14 +662,19 @@ export function renderVizHtml(data: VizPageData): string {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 6px;
+    overflow: visible;
   }
   .kpi {
     border: 1px solid var(--line);
     background: rgba(24, 24, 27, 0.02);
     padding: 7px 9px;
+    position: relative;
+    overflow: visible;
   }
+  .kpi:hover, .kpi:focus-within { z-index: 8; }
   .kpi .k {
-    display: block;
+    display: flex;
+    align-items: center;
     font-size: 9px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -655,6 +687,35 @@ export function renderVizHtml(data: VizPageData): string {
     font-size: 15px;
     font-weight: 600;
     letter-spacing: -0.03em;
+  }
+  .stat .v.health-ok, .kpi .v.health-ok { color: var(--ok); }
+  .stat .v.health-warn, .kpi .v.health-warn { color: var(--warn); }
+  .stat .v.health-bad, .kpi .v.health-bad { color: var(--bad); }
+  .advice-list {
+    margin: 0;
+    padding: 0 0 0 18px;
+  }
+  .advice-list li {
+    margin: 6px 0;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .advice-list code {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: rgba(24, 24, 27, 0.05);
+    border: 1px solid var(--line);
+    padding: 1px 6px;
+  }
+  .ephemeral-ws {
+    margin-top: 14px;
+  }
+  .ephemeral-ws summary {
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
   }
   .bar-track {
     height: 10px;
@@ -919,6 +980,81 @@ export function renderVizHtml(data: VizPageData): string {
     white-space: pre-wrap;
     word-break: break-word;
   }
+  .scope-tabs {
+    display: flex;
+    gap: 0;
+    margin: 0 0 16px;
+    border: 1px solid var(--line);
+    background: var(--bg-2);
+    box-shadow: var(--shadow);
+    width: fit-content;
+  }
+  .scope-tab {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: transparent;
+    border: none;
+    border-right: 1px solid var(--line);
+    padding: 9px 16px;
+    cursor: pointer;
+  }
+  .scope-tab:last-child { border-right: none; }
+  .scope-tab:hover { color: var(--accent-2); }
+  .scope-tab.is-active {
+    color: var(--accent-2);
+    background: var(--accent-dim);
+    font-weight: 600;
+  }
+  .scope-pane[hidden] { display: none; }
+  tbody tr.is-current td { background: var(--accent-dim); }
+  .tip {
+    position: static;
+    display: inline-flex;
+    margin-left: 6px;
+    vertical-align: middle;
+    flex-shrink: 0;
+  }
+  .tip-mark {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: rgba(24, 24, 27, 0.04);
+    color: var(--muted);
+    font-size: 9px;
+    font-weight: 700;
+    font-family: var(--mono);
+    display: grid;
+    place-items: center;
+    cursor: help;
+    line-height: 1;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .tip-body {
+    display: none;
+    position: fixed;
+    z-index: 9999;
+    width: 260px;
+    padding: 10px 12px;
+    background: #18181b;
+    color: #f4f4f5;
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+    line-height: 1.45;
+    box-shadow: 0 8px 24px rgba(24, 24, 27, 0.18);
+    white-space: normal;
+    pointer-events: none;
+  }
+  .stat .tip-body, .kpi .tip-body {
+    width: 260px;
+  }
 </style>
 </head>
 <body>
@@ -927,7 +1063,7 @@ export function renderVizHtml(data: VizPageData): string {
     <div>
       <div class="brand-row">
         <span class="brand-mark">Local</span>
-        <h1>FastPath index</h1>
+        <h1>FastPath report</h1>
       </div>
       <div class="sub">${escapeHtml(data.workspace)}</div>
     </div>
@@ -940,43 +1076,44 @@ export function renderVizHtml(data: VizPageData): string {
     </div>
   </header>
 
-  <div class="grid-stats">
-    <div class="stat"><div class="k">Files</div><div class="v">${s.files}</div></div>
-    <div class="stat"><div class="k">Symbols</div><div class="v">${s.symbols}</div></div>
-    <div class="stat"><div class="k">Imports</div><div class="v">${s.importEdges}</div></div>
-    <div class="stat"><div class="k">Call edges</div><div class="v">${s.callEdges}</div></div>
-    <div class="stat"><div class="k">Vectors</div><div class="v">${s.vectors}</div></div>
-    <div class="stat"><div class="k">N-grams</div><div class="v">${s.ngrams}</div></div>
-    <div class="stat"><div class="k">Memories</div><div class="v">${s.memories}</div></div>
-    <div class="stat"><div class="k">Inject hit</div><div class="v">${hit}</div></div>
-  </div>
-  <div class="grid-stats-ledger">
-    <div class="stat"><div class="k">Injected</div><div class="v">${formatLedgerTok(data.metrics.injectedTokens)}</div></div>
-    <div class="stat"><div class="k">MCP out</div><div class="v">${formatLedgerTok(data.metrics.mcpResponseTokens)}</div></div>
-    <div class="stat"><div class="k">Avoided ≈</div><div class="v">${formatLedgerTok(data.metrics.tokensAvoided)}</div></div>
-    <div class="stat"><div class="k">Net ≈</div><div class="v">${formatLedgerTok(data.metrics.netTokens)}</div></div>
+  <nav class="scope-tabs" role="tablist" aria-label="Report scope">
+    <button type="button" class="scope-tab is-active" data-tab="project" role="tab" aria-selected="true">This project</button>
+    <button type="button" class="scope-tab" data-tab="global" role="tab" aria-selected="false">All FastPath</button>
+  </nav>
+
+  <div class="scope-pane" data-scope="project">
+  <div class="grid-stats" id="index-stats">
+    ${statCard('files', String(s.files))}
+    ${statCard('symbols', String(s.symbols))}
+    ${statCard('imports', String(s.importEdges))}
+    ${statCard('callEdges', String(s.callEdges))}
+    ${statCard('vectors', String(s.vectors))}
+    ${statCard('ngrams', String(s.ngrams))}
+    ${statCard('memories', String(s.memories))}
+    ${statCard('coverage', formatCoverage(s.vectors, s.symbols), healthClass('coverage', coverageRatio))}
   </div>
 
   <div class="layout">
     <section class="panel">
-      <h2>Files by folder</h2>
+      ${sectionTitle('filesByFolder')}
       ${lollipopChart(data.folders) || '<p class="muted">No files indexed.</p>'}
     </section>
     <section class="panel">
-      <h2>Symbol kinds</h2>
+      ${sectionTitle('symbolKinds')}
       ${donutChart(data.symbolKinds, 'Symbol kinds') || '<p class="muted">No symbols.</p>'}
     </section>
     <section class="panel">
-      <h2>Languages</h2>
+      ${sectionTitle('languages')}
       ${donutChart(data.languages, 'Languages') || '<p class="muted">No languages.</p>'}
     </section>
     <section class="panel">
-      <h2>Inject metrics (local)</h2>
-      ${injectMetricsBlock(data.metrics, hit)}
+      ${sectionTitle('usageProject')}
+      ${usageBody(data.projectMetrics, 'No events tagged to this path. Untagged and other-repo numbers live on All FastPath.')}
     </section>
+    ${adviceBlock(data.projectMetrics, { workspace: data.workspace, coveragePct: coverageRatio })}
 
     <section class="panel full">
-      <h2>Heaviest files (by symbol count)</h2>
+      ${sectionTitle('heaviestFiles')}
       ${
         heavyRows
           ? `<table>
@@ -987,16 +1124,16 @@ export function renderVizHtml(data: VizPageData): string {
       }
     </section>
 
-    ${
-      data.callGraph.nodes.length
-        ? `<section class="panel full">
+    <section class="panel full">
       <div class="graph-head">
-        <h2>Call graph (interactive)</h2>
+        ${sectionTitle('callGraph')}
         <div class="graph-actions">
           <button type="button" class="graph-btn" id="graph-fullscreen">Fullscreen</button>
         </div>
       </div>
-      <div class="graph-shell" id="graph-shell">
+      ${
+        data.callGraph.nodes.length
+          ? `<div class="graph-shell" id="graph-shell">
         <canvas id="graph"></canvas>
         <div class="graph-hud">
           <div class="graph-hint">Drag · scroll zoom · pan · click node for details</div>
@@ -1027,26 +1164,100 @@ export function renderVizHtml(data: VizPageData): string {
       </div>
       <p class="muted" style="margin-top:8px;font-family:var(--mono);font-size:11px">
         ${data.callGraph.nodes.length} nodes · ${data.callGraph.edges.length} edges · noise (jest/expect/JSON/…) filtered
-      </p>
-    </section>`
-        : ''
-    }
+      </p>`
+          : '<p class="muted">No call edges.</p>'
+      }
+    </section>
 
-    ${
-      memBlock
-        ? `<section class="panel full">
-      <h2>Memories</h2>
-      <ul class="mem-list">${memBlock}</ul>
-    </section>`
-        : ''
-    }
+    <section class="panel full">
+      ${sectionTitle('memoriesList')}
+      ${
+        memBlock
+          ? `<ul class="mem-list">${memBlock}</ul>`
+          : '<p class="muted">No memories yet.</p>'
+      }
+    </section>
+  </div>
+  </div>
+
+  <div class="scope-pane" data-scope="global" hidden>
+    ${ledgerStrip(data.globalMetrics)}
+    <div class="layout">
+      <section class="panel">
+        ${sectionTitle('usageGlobal')}
+        ${injectMetricsBlock(data.globalMetrics)}
+      </section>
+      <section class="panel">
+        ${sectionTitle('eventMix')}
+        ${donutChart(data.eventMix, 'Event mix') || '<p class="muted">No journal events yet.</p>'}
+      </section>
+      ${adviceBlock(data.globalMetrics)}
+      <section class="panel full">
+        ${sectionTitle('workspaces')}
+        ${workspaceTable(data.workspaces, data.workspace)}
+        <p class="muted ledger-legend">${data.untaggedEvents} untagged events (legacy journal rows with no workspace field).</p>
+      </section>
+    </div>
   </div>
 
   <footer>
     Local read-only snapshot from ${escapeHtml(data.dbPath)}. Nothing leaves this machine.
+    This project = index + tagged usage. All FastPath = user-level journal.
     Re-run <span style="color:var(--accent)">fastpath viz</span> after indexing.
   </footer>
 </div>
+
+  <script>
+  (function () {
+    document.querySelectorAll('.tip').forEach(function (tip) {
+      var body = tip.querySelector('.tip-body');
+      if (!body) return;
+      function hide() { body.style.display = 'none'; }
+      function show() {
+        var mark = tip.querySelector('.tip-mark') || tip;
+        var r = mark.getBoundingClientRect();
+        var w = Math.min(280, window.innerWidth - 16);
+        var left = r.left;
+        if (left + w > window.innerWidth - 8) left = window.innerWidth - w - 8;
+        if (left < 8) left = 8;
+        var top = r.bottom + 8;
+        if (top + 120 > window.innerHeight) top = Math.max(8, r.top - 8 - 120);
+        body.style.left = left + 'px';
+        body.style.top = top + 'px';
+        body.style.display = 'block';
+      }
+      tip.addEventListener('mouseenter', show);
+      tip.addEventListener('focus', show);
+      tip.addEventListener('mouseleave', hide);
+      tip.addEventListener('blur', hide);
+    });
+  })();
+  </script>
+
+  <script>
+  (function () {
+    var tabs = document.querySelectorAll('.scope-tab');
+    var panes = document.querySelectorAll('.scope-pane');
+    function show(name) {
+      tabs.forEach(function (t) {
+        var on = t.getAttribute('data-tab') === name;
+        t.classList.toggle('is-active', on);
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      panes.forEach(function (p) {
+        p.hidden = p.getAttribute('data-scope') !== name;
+      });
+      if (history.replaceState) history.replaceState(null, '', '#' + name);
+      window.dispatchEvent(new Event('resize'));
+    }
+    tabs.forEach(function (t) {
+      t.addEventListener('click', function () { show(t.getAttribute('data-tab')); });
+    });
+    var hash = (location.hash || '#project').slice(1);
+    if (hash !== 'global' && hash !== 'project') hash = 'project';
+    show(hash);
+  })();
+  </script>
 
   <script>
   (function () {
@@ -1403,8 +1614,9 @@ export function runViz(options: VizOptions): { outPath: string; data: VizPageDat
   const data = buildVizPageData(options.workspace);
   const html = renderVizHtml(data);
   const hash = createHash('sha1').update(options.workspace).digest('hex').slice(0, 8);
+  const stamp = Date.now().toString(36);
   const outPath =
-    options.outPath || join(tmpdir(), `fastpath-viz-${hash}.html`);
+    options.outPath || join(tmpdir(), `fastpath-viz-${hash}-${stamp}.html`);
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, html, 'utf8');
   if (options.openBrowser) openInBrowser(outPath);

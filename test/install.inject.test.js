@@ -103,7 +103,7 @@ test('install-kiro writes valid hook JSON and wired agents', () => {
     assert.doesNotMatch(scout, /\bincludeMcpJson\b/);
     assert.doesNotMatch(scout, /\btoolsSettings\b/);
     assert.match(scout, /name:\s*Scout/);
-    assert.match(scout, /tools:\s*\["read",\s*"write",\s*"@fastpath"\]/);
+    assert.match(scout, /tools:\s*\["read",\s*"@fastpath"\]/);
 
     assert.equal(existsSync(join(dir, '.kiro/agents/Scout.json')), false);
 
@@ -116,9 +116,9 @@ test('install-kiro writes valid hook JSON and wired agents', () => {
     assert.ok(existsSync(join(dir, '.kiro/skills/caveman/SKILL.md')));
     assert.ok(existsSync(join(dir, '.kiro/skills/ponytail/SKILL.md')));
     assert.match(scout, /skill:\/\/\.kiro\/skills\/caveman\/SKILL\.md/);
-    assert.match(scout, /skill:\/\/\.kiro\/skills\/ponytail\/SKILL\.md/);
+    assert.doesNotMatch(scout, /skill:\/\/\.kiro\/skills\/ponytail\/SKILL\.md/);
     assert.match(scout, /OUTPUT MODE = caveman full.*MANDATORY/i);
-    assert.match(scout, /CODE MODE = ponytail full.*MANDATORY/i);
+    assert.doesNotMatch(scout, /CODE MODE = ponytail full/);
 
     const architect = readFileSync(join(dir, '.kiro/agents/Architect.md'), 'utf8');
     assert.doesNotMatch(architect, /\ballowedTools\b/);
@@ -129,6 +129,9 @@ test('install-kiro writes valid hook JSON and wired agents', () => {
     assert.match(architect, /skill:\/\/\.kiro\/skills\/ponytail\/SKILL\.md/);
     assert.match(architect, /OUTPUT MODE = caveman full.*MANDATORY/i);
     assert.match(architect, /CODE MODE = ponytail full.*MANDATORY/i);
+    assert.match(architect, /toolsSettings:/);
+    assert.match(architect, /availableAgents:\s*\["Scout"\]/);
+    assert.match(architect, /trustedAgents:\s*\["Scout"\]/);
     assert.equal(existsSync(join(dir, '.kiro/agents/surgical.md')), false);
 
     const mcp = JSON.parse(readFileSync(join(dir, '.kiro/settings/mcp.json'), 'utf8'));
@@ -153,6 +156,7 @@ test('install-kiro writes valid hook JSON and wired agents', () => {
     assert.match(doctor.stdout, /Architect agent installed/);
     assert.match(doctor.stdout, /AGENTS\.md includes caveman \+ ponytail/);
     assert.match(doctor.stdout, /Ponytail skill installed/);
+    assert.match(doctor.stdout, /MCP tool surface: FastPath only/);
     assert.match(doctor.stdout, /Steering includes Ponytail full/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -172,10 +176,44 @@ test('prompt-inject returns FastPath hits for indexed workspace', async () => {
       input: JSON.stringify({ prompt: 'AuthService login validateJwt', cwd: dir }),
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /FastPath retrieved context/);
-    assert.match(result.stdout, /OUTPUT MODE = caveman full/);
-    assert.match(result.stdout, /CODE MODE = ponytail full/);
+    assert.match(result.stdout, /## FastPath \(/);
+    assert.doesNotMatch(result.stdout, /OUTPUT MODE = caveman full/);
+    assert.doesNotMatch(result.stdout, /CODE MODE = ponytail full/);
     assert.match(result.stdout, /AuthService|validateJwt|login/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('prompt-inject skips code windows for meta; retrieves on question', async () => {
+  const { indexWorkspace } = await import(join(root, 'packages/core/dist/index.js'));
+  const dir = mkdtempSync(join(tmpdir(), 'fastpath-inject-meta-'));
+  try {
+    cpSync(join(root, 'fixtures/sample-src'), join(dir, 'src'), { recursive: true });
+    await indexWorkspace(dir);
+
+    const meta = spawnSync(process.execPath, [inject], {
+      encoding: 'utf8',
+      env: { ...testEnv, FASTPATH_WORKSPACE: dir },
+      input: JSON.stringify({ prompt: 'commit these changes', cwd: dir }),
+    });
+    assert.equal(meta.status, 0, meta.stderr);
+    assert.match(meta.stdout, /session\/meta — no code windows/);
+    assert.doesNotMatch(meta.stdout, /```/);
+    assert.doesNotMatch(meta.stdout, /Routing advisor/);
+
+    const question = spawnSync(process.execPath, [inject], {
+      encoding: 'utf8',
+      env: { ...testEnv, FASTPATH_WORKSPACE: dir },
+      input: JSON.stringify({
+        prompt: 'how does authentication work in general',
+        cwd: dir,
+      }),
+    });
+    assert.equal(question.status, 0, question.stderr);
+    assert.match(question.stdout, /## FastPath/);
+    assert.doesNotMatch(question.stdout, /no code windows/);
+    assert.doesNotMatch(question.stdout, /session\/meta/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
