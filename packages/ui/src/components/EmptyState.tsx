@@ -1,5 +1,7 @@
 import type { InputHTMLAttributes, ReactNode } from 'react';
-import { Check } from '@phosphor-icons/react';
+import { useState } from 'react';
+import { Check, FolderOpen } from '@phosphor-icons/react';
+import { pickFolder } from '../api';
 
 export function EmptyState({
   title,
@@ -51,6 +53,57 @@ export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
       {...props}
       className={`w-full rounded-2xl border border-stone-300 bg-white px-4 py-3 font-mono text-sm text-stone-900 outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 ${props.className ?? ''}`}
     />
+  );
+}
+
+export function PathInput({
+  value,
+  onChange,
+  placeholder,
+  disabled,
+}: {
+  value: string;
+  onChange: (path: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  const [picking, setPicking] = useState(false);
+  const [pickError, setPickError] = useState<string | null>(null);
+
+  async function browse() {
+    setPicking(true);
+    setPickError(null);
+    try {
+      const path = await pickFolder();
+      if (path) onChange(path);
+    } catch (err) {
+      setPickError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPicking(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex gap-2">
+        <TextInput
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          disabled={disabled}
+        />
+        <button
+          type="button"
+          disabled={disabled || picking}
+          onClick={() => void browse()}
+          className="inline-flex shrink-0 items-center gap-2 rounded-2xl border border-stone-300 bg-white px-4 py-3 text-sm text-stone-800 active:scale-[0.98] disabled:opacity-40"
+        >
+          <FolderOpen weight="regular" className="size-4" />
+          {picking ? 'Pick…' : 'Browse'}
+        </button>
+      </div>
+      {pickError ? <p className="text-sm text-rose-700">{pickError}</p> : null}
+    </div>
   );
 }
 

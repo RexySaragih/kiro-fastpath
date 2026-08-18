@@ -77,6 +77,14 @@ export function killJob(id: string): Promise<{ ok: boolean }> {
   return api(`/api/jobs/${id}`, { method: 'DELETE' });
 }
 
+export async function pickFolder(): Promise<string | null> {
+  const result = await api<{ path: string | null; cancelled?: boolean }>('/api/pick-folder', {
+    method: 'POST',
+    body: '{}',
+  });
+  return result.path;
+}
+
 export async function streamJob(
   jobId: string,
   onLine: (line: { stream: 'stdout' | 'stderr'; line: string }) => void,

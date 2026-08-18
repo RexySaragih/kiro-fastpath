@@ -2,7 +2,7 @@ import { ArrowRight } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { ApiError } from '../api';
 import type { JobSpec, StatePayload } from '../types';
-import { Field, InlineError, Panel, StepBadge, TextInput } from '../components/EmptyState';
+import { Field, InlineError, Panel, PathInput, StepBadge, TextInput } from '../components/EmptyState';
 import { MagneticButton } from '../components/MagneticButton';
 import { isEphemeralWorkspace } from '../workspace';
 
@@ -60,11 +60,11 @@ export function SetupScreen({
                 <div className="mt-4">
                   <Field
                     label="Path of this clone"
-                    hint="Leave this if you just ran git clone. Only change it if you unpacked a release zip somewhere else."
+                    hint="Leave this if you just ran git clone. Browse opens a native folder dialog."
                   >
-                    <TextInput
+                    <PathInput
                       value={from}
-                      onChange={(e) => setFrom(e.target.value)}
+                      onChange={setFrom}
                       placeholder="/Users/you/Documents/kiro-fastpath"
                     />
                   </Field>
@@ -149,10 +149,13 @@ export function SetupScreen({
                   Not this FastPath clone. The application Kiro should index — your product repo.
                 </p>
                 <div className="mt-6 flex flex-col gap-4">
-                  <Field label="Application repo path" hint="Absolute path. Example: /Users/you/Documents/my-app">
-                    <TextInput
+                  <Field
+                    label="Application repo path"
+                    hint="Browse the repo folder, or type an absolute path."
+                  >
+                    <PathInput
                       value={workspace}
-                      onChange={(e) => setWorkspace(e.target.value)}
+                      onChange={setWorkspace}
                       placeholder="/Users/you/Documents/my-app"
                     />
                   </Field>

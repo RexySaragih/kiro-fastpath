@@ -27,6 +27,7 @@ import {
   startJob,
   type JobLine,
 } from './ui-jobs.js';
+import { pickFolder } from './ui-pick-folder.js';
 import { buildVizPageData } from './viz.js';
 
 const DEFAULT_PORT = 8787;
@@ -191,6 +192,25 @@ async function handleApi(
     return;
   }
 
+  if (method === 'POST' && path === '/api/pick-folder') {
+    try {
+      await readJson(req);
+    } catch {
+      /* empty or invalid body is fine */
+    }
+    const picked = pickFolder();
+    if (picked.cancelled) {
+      send(res, 200, { path: null, cancelled: true });
+      return;
+    }
+    if (picked.error || !picked.path) {
+      send(res, 500, { error: picked.error ?? 'folder picker failed' });
+      return;
+    }
+    send(res, 200, { path: picked.path, cancelled: false });
+    return;
+  }
+
   if (method === 'POST' && path === '/api/jobs') {
     let body: unknown;
     try {
@@ -331,6 +351,7 @@ export function startUiServer(opts: UiServerOptions): Promise<UiServerHandle> {
         close: () =>
           new Promise((resolveClose, rejectClose) => {
             server.close((err) => (err ? rejectClose(err) : resolveClose()));
+            server.closeAllConnections();
           }),
       });
     });
@@ -352,10 +373,19 @@ export async function startUiCommand(opts: {
   console.log(`FastPath UI → ${handle.url}`);
   if (opts.openBrowser) openInBrowser(handle.url);
   await new Promise<void>((resolveWait) => {
+    let stopping = false;
     const stop = () => {
-      void handle.close().then(() => resolveWait());
+      if (stopping) {
+        process.exit(0);
+        return;
+      }
+      stopping = true;
+      void handle.close().then(
+        () => resolveWait(),
+        () => process.exit(1),
+      );
     };
-    process.on('SIGINT', stop);
-    process.on('SIGTERM', stop);
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
   });
 }

@@ -20,6 +20,7 @@
     "eval:golden": "npm run build && FASTPATH_EMBED=hash FASTPATH_RERANK=off FASTPATH_PARSER=legacy FASTPATH_ALLOW_HASH=1 node packages/cli/dist/index.js eval --golden",
     "bench": "npm run build && node packages/cli/dist/index.js bench",
     "fastpath": "node packages/cli/dist/index.js",
+    "ui": "node packages/cli/dist/index.js ui",
     "mcp": "node packages/mcp-server/dist/index.js",
     "install:target": "bash scripts/install-target.sh",
     "qc": "npm run build && npm test && npm run eval:golden",

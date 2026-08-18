@@ -122,6 +122,15 @@ test('UI server: 401, 403 rebinding, 409 confirm, traversal, viz JSON, SSE exit'
     });
     assert.equal(noTok.status, 401);
 
+    const pickNoTok = await httpCall({
+      port: handle.port,
+      path: '/api/pick-folder',
+      method: 'POST',
+      headers: { Host: loopbackHost, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    assert.equal(pickNoTok.status, 401);
+
     const badHost = await httpCall({
       port: handle.port,
       path: '/api/state',
@@ -232,6 +241,43 @@ test('UI server: 401, 403 rebinding, 409 confirm, traversal, viz JSON, SSE exit'
     rmSync(uiRoot, { recursive: true, force: true });
     if (prevUser === undefined) delete process.env.FASTPATH_USER_DIR;
     else process.env.FASTPATH_USER_DIR = prevUser;
+  }
+});
+
+test('UI server close does not hang on keep-alive', async () => {
+  const uiRoot = mkdtempSync(join(tmpdir(), 'fastpath-ui-close-'));
+  writeFileSync(join(uiRoot, 'index.html'), '<!doctype html><title>fp</title>');
+  const { startUiServer } = await import(join(root, 'packages/cli/dist/ui-server.js'));
+  const handle = await startUiServer({
+    workspace: root,
+    port: 0,
+    token: 'x'.repeat(64),
+    uiRoot,
+    openBrowser: false,
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      const req = httpRequest(
+        {
+          hostname: '127.0.0.1',
+          port: handle.port,
+          path: '/',
+          headers: { Host: `127.0.0.1:${handle.port}` },
+          setHost: false,
+        },
+        (res) => {
+          res.resume();
+          resolve(undefined);
+        },
+      );
+      req.on('error', reject);
+      req.end();
+    });
+    const started = Date.now();
+    await handle.close();
+    assert.ok(Date.now() - started < 2000, 'close hung on open connection');
+  } finally {
+    rmSync(uiRoot, { recursive: true, force: true });
   }
 });
 
