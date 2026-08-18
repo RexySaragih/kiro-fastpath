@@ -115,18 +115,24 @@ Indexing alone does nothing. Kiro only uses FastPath when all four exist:
 ```bash
 # Keep a git checkout (e.g. Documents). Install copies it into ~/kiro-fastpath.
 git clone <kiro-fastpath-url> ~/Documents/kiro-fastpath
+cd ~/Documents/kiro-fastpath && npm install && npm run build && npm run build:ui
 unset FASTPATH_HOME   # important — never point home at the git checkout
+fastpath ui           # guided setup in the browser (see `fastpath ui` below)
+# or CLI-only:
 bash ~/Documents/kiro-fastpath/scripts/install-home.sh ~/Documents/kiro-fastpath
 source ~/.zshrc       # enables `fastpath` + FASTPATH_HOME=~/kiro-fastpath
 ```
 
 `install-home` takes the **kiro-fastpath** checkout — not your app repo. It copies into **`~/kiro-fastpath`** (separate from the git checkout), then puts `fastpath` on your PATH. **Do not** set `FASTPATH_HOME` to the same path as the checkout — that wipes the tree.
 
+The **Setup** screen in `fastpath ui` walks the same steps: copy into home → download models → connect your app repo and build the first index. When everything is ready, the UI opens on **Repos** next time.
+
 **Per project workspace:**
 
 ```bash
 bash "$FASTPATH_HOME/scripts/install-target.sh" /path/to/your-repo
 # or: fastpath use /path/to/your-repo
+# or: Repos screen in `fastpath ui` → Add a repo
 ```
 
 **In Kiro:**
@@ -216,7 +222,20 @@ Optional ANN: `npm install sqlite-vec -w @fastpath/core` then re-index.
 
 ### `fastpath ui`
 
-Local control panel on `127.0.0.1` (never `0.0.0.0`). Each run mints a session token and opens `http://127.0.0.1:<port>/?t=<token>`. The SPA stores the token and strips it from the URL. API calls send `Authorization: Bearer`. Host/Origin that are not loopback are rejected (DNS-rebinding guard). Destructive verbs (`install-home`, `upgrade`, `unwire`, `repair-native`, `index --rebuild`) require typing the affected path.
+Local control panel on `127.0.0.1` (never `0.0.0.0`). Each run mints a session token and opens `http://127.0.0.1:<port>/?t=<token>`. The SPA stores the token and strips it from the URL. API calls send `Authorization: Bearer`. Host/Origin that are not loopback are rejected (DNS-rebinding guard). Destructive verbs (`install-home`, `upgrade`, `unwire`, `repair-native`, `index --rebuild`) require confirmation — the UI asks for the **folder name**; the server still validates the full path.
+
+Four screens:
+
+| Screen   | Purpose |
+| -------- | ------- |
+| **Setup** | First-run wizard: copy checkout → home, download models, connect & index your app repo. Steps unlock in order; when done, shows a maintenance summary. |
+| **Repos** | Manage wired workspaces — add a repo, update index, watch, reconnect, rebuild, unwire. Rows show index stats and “indexed … ago”. |
+| **Health** | `doctor` for the selected workspace — readiness, hooks, index stats. |
+| **Signal** | Token ledger and hit rate from the local journal (`viz` data). |
+
+**Landing:** if home is installed, models are cached, and at least one real repo is wired, the UI opens on **Repos**; otherwise **Setup**. A workspace switcher in the left rail drives **Health** and **Signal** for the same repo.
+
+Long-running jobs (index, watch, install-home, warm) stream into a dock at the bottom of the page.
 
 Prebuilt assets live in `packages/ui/dist` so airgapped installs do not need Vite. Contributors who change the panel:
 
@@ -224,7 +243,7 @@ Prebuilt assets live in `packages/ui/dist` so airgapped installs do not need Vit
 npm run build:ui
 ```
 
-`packages/ui` is not an npm workspace member — `npm ci` on a target machine will not install React/Vite.
+`packages/ui` is not an npm workspace member — `npm ci` on a target machine will not install React/Vite. From a dev checkout, run `npm --prefix packages/ui install` once if Vite is missing, then `npm run build:ui`.
 
 ### MCP shape (written by install — do not hand-copy machine-specific paths)
 

@@ -149,6 +149,21 @@ test('UI server: 401, 403 rebinding, 409 confirm, traversal, viz JSON, SSE exit'
     });
     assert.equal(badOrigin.status, 403);
 
+    const stateRes = await httpCall({
+      port: handle.port,
+      path: '/api/state',
+      headers: { Host: loopbackHost, ...auth },
+    });
+    assert.equal(stateRes.status, 200);
+    const state = JSON.parse(stateRes.body);
+    assert.equal(typeof state.modelsReady, 'boolean');
+    assert.equal(typeof state.modelCache, 'string');
+    assert.ok(state.repoStats && typeof state.repoStats === 'object');
+    for (const entry of Object.values(state.repoStats)) {
+      assert.equal(typeof entry.files, 'number');
+      assert.equal(typeof entry.symbols, 'number');
+    }
+
     const unconfirmed = await httpCall({
       port: handle.port,
       path: '/api/jobs',

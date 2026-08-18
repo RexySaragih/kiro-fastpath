@@ -23,6 +23,11 @@ export function JobDock({
     if (running) setOpen(true);
   }, [running]);
 
+  const failed = Boolean(latest && !latest.running && latest.exitCode && latest.exitCode !== 0);
+  useEffect(() => {
+    if (failed) setOpen(true);
+  }, [failed, latest?.id]);
+
   useEffect(() => {
     const el = logRef.current;
     if (el) el.scrollTop = el.scrollHeight;

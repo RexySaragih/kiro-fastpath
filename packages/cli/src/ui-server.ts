@@ -10,7 +10,7 @@ import {
   statSync,
 } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
-import { getIndexStats } from '@fastpath/core';
+import { getIndexStats, minilmWeightsPresent, modelCacheDir } from '@fastpath/core';
 import {
   defaultFastpathHome,
   listWiredWorkspaces,
@@ -20,6 +20,7 @@ import {
   resolveFastpathHome,
 } from './config.js';
 import { runDoctor } from './doctor.js';
+import { isEphemeralWorkspace } from './viz-scope.js';
 import {
   getJob,
   JobValidationError,
@@ -136,6 +137,26 @@ function readJson(req: IncomingMessage): Promise<unknown> {
   });
 }
 
+interface RepoStatsEntry {
+  files: number;
+  symbols: number;
+  indexedAt: string | null;
+}
+
+function collectRepoStats(wired: string[]): Record<string, RepoStatsEntry> {
+  const stats: Record<string, RepoStatsEntry> = {};
+  for (const workspace of wired) {
+    if (isEphemeralWorkspace(workspace) || !existsSync(workspace)) continue;
+    try {
+      const s = getIndexStats(workspace);
+      stats[workspace] = { files: s.files, symbols: s.symbols, indexedAt: s.indexedAt };
+    } catch {
+      /* one broken index must not break /api/state */
+    }
+  }
+  return stats;
+}
+
 function workspaceFrom(url: URL, fallback: string): string {
   const q = url.searchParams.get('workspace');
   return q && q.length > 0 ? q : fallback;
@@ -156,6 +177,7 @@ async function handleApi(
 
   if (method === 'GET' && path === '/api/state') {
     const home = resolveFastpathHome();
+    const wired = listWiredWorkspaces();
     send(res, 200, {
       version: readPackageVersion(home),
       home,
@@ -163,8 +185,11 @@ async function handleApi(
       checkout: PACKAGE_ROOT,
       installed: existsSync(join(home, 'packages/cli/dist/index.js')),
       cli: join(home, 'packages/cli/dist/index.js'),
-      wired: listWiredWorkspaces(),
+      wired,
       config: loadConfig(),
+      modelsReady: minilmWeightsPresent(),
+      modelCache: modelCacheDir(),
+      repoStats: collectRepoStats(wired),
     });
     return;
   }
