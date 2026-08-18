@@ -198,6 +198,7 @@ fastpath bench [workspace] [--tasks f.json]  # tokens injected vs baseline disco
 fastpath home|version|metrics [--summary|--tokens]
 fastpath memory list|forget <id>|distill [workspace]
 fastpath viz [workspace] [--no-open] [--out file.html]   # HTML report: this project + all FastPath
+fastpath ui [workspace] [--port N] [--no-open]           # localhost control panel
 ```
 
 Env (also set by install into MCP/hook):
@@ -212,6 +213,18 @@ Env (also set by install into MCP/hook):
 | `FASTPATH_ALLOW_HASH` | `1` to allow hash backend in doctor              |
 
 Optional ANN: `npm install sqlite-vec -w @fastpath/core` then re-index.
+
+### `fastpath ui`
+
+Local control panel on `127.0.0.1` (never `0.0.0.0`). Each run mints a session token and opens `http://127.0.0.1:<port>/?t=<token>`. The SPA stores the token and strips it from the URL. API calls send `Authorization: Bearer`. Host/Origin that are not loopback are rejected (DNS-rebinding guard). Destructive verbs (`install-home`, `upgrade`, `unwire`, `repair-native`, `index --rebuild`) require typing the affected path.
+
+Prebuilt assets live in `packages/ui/dist` so airgapped installs do not need Vite. Contributors who change the panel:
+
+```bash
+npm run build:ui
+```
+
+`packages/ui` is not an npm workspace member — `npm ci` on a target machine will not install React/Vite.
 
 ### MCP shape (written by install — do not hand-copy machine-specific paths)
 

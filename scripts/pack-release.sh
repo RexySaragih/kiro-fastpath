@@ -37,6 +37,12 @@ for pkg in core cli mcp-server agent-pack; do
   # CLI/core need tsconfig only if rebuilding; ship package.json + dist is enough
 done
 
+# Prebuilt control panel (no package.json — target must not npm-install Vite)
+if [[ -d packages/ui/dist ]]; then
+  mkdir -p "$STAGE/packages/ui"
+  cp -R packages/ui/dist "$STAGE/packages/ui/"
+fi
+
 # core needs types for consumers; already in dist
 # Copy scripts + fixtures
 cp -R scripts/. "$STAGE/scripts/"

@@ -5,10 +5,14 @@
   "description": "Kiro Fast-Path: warm local hybrid code index + thin MCP + Scout/Architect agent pack",
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/core",
+    "packages/cli",
+    "packages/mcp-server",
+    "packages/agent-pack"
   ],
   "scripts": {
     "build": "npm run build -w @fastpath/core && npm run build -w @fastpath/mcp-server && npm run build -w @fastpath/cli",
+    "build:ui": "npm --prefix packages/ui run build",
     "test": "npm run build && FASTPATH_EMBED=hash FASTPATH_RERANK=off FASTPATH_PARSER=legacy FASTPATH_ALLOW_HASH=1 node --test test/*.test.js",
     "test:connections": "npm run build && FASTPATH_EMBED=hash FASTPATH_RERANK=off FASTPATH_PARSER=legacy node packages/mcp-server/dist/scripts/test-connections.js",
     "eval": "npm run build && FASTPATH_EMBED=hash FASTPATH_RERANK=off FASTPATH_PARSER=legacy node packages/cli/dist/index.js eval",

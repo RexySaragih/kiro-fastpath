@@ -313,7 +313,7 @@ function adviceBlock(
   </section>`;
 }
 
-function openInBrowser(filePath: string): void {
+export function openInBrowser(filePath: string): void {
   const platform = process.platform;
   if (platform === 'darwin') {
     spawn('open', [filePath], { detached: true, stdio: 'ignore' }).unref();

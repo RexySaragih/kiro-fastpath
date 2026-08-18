@@ -80,6 +80,7 @@ Usage:
   fastpath home|version|metrics [--summary|--tokens]
   fastpath memory list|forget <id>|distill [workspace]
   fastpath viz [workspace] [--no-open] [--out file.html]  # HTML report: this project + all FastPath
+  fastpath ui [workspace] [--port N] [--no-open]  # localhost control panel
 
 Env:
   FASTPATH_HOME        Install root (default ~/kiro-fastpath)
@@ -1037,6 +1038,28 @@ async function main(): Promise<void> {
         console.error(err instanceof Error ? err.message : err);
         process.exit(1);
       }
+      break;
+    }
+    case 'ui': {
+      const noOpen = takeFlag(rest, '--no-open');
+      let args = noOpen.args;
+      let port: number | undefined;
+      const portIdx = args.indexOf('--port');
+      if (portIdx >= 0) {
+        const raw = args[portIdx + 1];
+        port = Number(raw);
+        if (!Number.isInteger(port) || port < 0 || port > 65535) {
+          console.error('usage: fastpath ui [workspace] [--port N] [--no-open]');
+          process.exit(1);
+        }
+        args = args.filter((_, i) => i !== portIdx && i !== portIdx + 1);
+      }
+      const { startUiCommand } = await import('./ui-server.js');
+      await startUiCommand({
+        workspace: workspaceFromArgs(args),
+        port,
+        openBrowser: !noOpen.set,
+      });
       break;
     }
     default:
