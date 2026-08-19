@@ -4,12 +4,14 @@
 
 You are on Kiro **Default** — full tools (shell OK for verify). Prefer FastPath retrieve before walks.
 
-1. Use auto-injected `## FastPath` / `## FastPath memory` when present.
-2. If `## NO_MATCH` or weak hits — spawn **Scout** (context-gatherer sub-agent) for deeper FastPath search. Do **not** edit from recency alone. If Scout confidence is `partial`/`none`, verify with `find`/`window` before editing.
-3. Else MCP: `find` / `impact` / `window` / `memory`. Prefer windows over whole-file reads.
-4. Never listDirectory/glob the repo for discovery — guardrail blocks unscoped walks.
+Never spawn Kiro's built-in **Context gathering** sub-agent (tree walk / file search). It is not FastPath. Locate = inject → **Scout** → `find`/`window`. Scout is the only gatherer.
 
-**Context gather:** Scout is a **read-only** sub-agent (cheap model), not an editor. Spawn Scout when you need exploration. Do **not** spawn Scout when auto-inject already provided strong hits, the user gave an explicit path, or the prompt is tiny. 6+ files / design / impact-heavy → prefer **Architect**. Default handles edits + shell verify directly.
+1. Use auto-injected `## FastPath` / `## FastPath memory` when present.
+2. If `## NO_MATCH` or weak hits — spawn **Scout** (FastPath context-gatherer) for deeper search. Do **not** edit from recency alone. If Scout confidence is `partial`/`none`, verify with `find`/`window` before editing.
+3. Else MCP: `find` / `impact` / `window` / `memory`. Prefer windows over whole-file reads.
+4. Never listDirectory/glob the repo for discovery — guardrail blocks unscoped walks. Never Kiro built-in Context gathering.
+
+**Context gather:** Scout is FastPath's **read-only** sub-agent (cheap model), not an editor. Replaces Kiro's built-in Context gathering. Spawn Scout when you need exploration. Do **not** spawn Scout when auto-inject already provided strong hits, the user gave an explicit path, or the prompt is tiny. 6+ files / design / impact-heavy → prefer **Architect**. Default handles edits + shell verify directly.
 
 **Debug loop:** paste failure stderr → `find` mode=grep on unique tokens → `window` around fail → fix → re-run test/lint here on Default.
 

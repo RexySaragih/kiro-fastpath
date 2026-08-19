@@ -49,7 +49,7 @@ export function formatRoutingLine(advice: RoutingAdvice): string {
 }
 
 export function formatGatherHint(): string {
-  return '**Gather hint:** auto-inject missed — consider spawning Scout for deeper context search.';
+  return '**Gather hint:** auto-inject missed — spawn Scout. Do not use Kiro built-in Context gathering.';
 }
 
 export function isTinyPrompt(prompt: string): boolean {

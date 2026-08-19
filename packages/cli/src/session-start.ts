@@ -136,7 +136,7 @@ async function run(): Promise<void> {
     '',
     'Locate code with FastPath (injected context or MCP: find / impact / window / memory).',
     'Default agent: edit + shell OK. Spawn Scout to gather when inject misses. Architect 6+ / design.',
-    'Do NOT walk the repo with listDirectory/glob.',
+    'Do NOT spawn Kiro built-in Context gathering. Do NOT walk the repo with listDirectory/glob.',
   );
 
   writeContext(`${lines.join('\n')}\n`);

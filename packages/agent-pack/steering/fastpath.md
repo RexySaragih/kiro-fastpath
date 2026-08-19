@@ -8,8 +8,10 @@ Output: `caveman.md`. Code: `ponytail.md`. Both always-on (Scout: caveman only �
 
 Locate **repo content** via FastPath — never tree walks or shell-grep of the workspace.
 
+Never spawn Kiro's built-in **Context gathering** sub-agent. Scout is the gatherer.
+
 1. Use auto-injected `## FastPath` / `## FastPath memory` when present — those blocks already contain focused code windows (`path:start-end` + body).
-2. If `## NO_MATCH` — spawn **Scout** (gatherer sub-agent) or call `find` with a sharper query. Do **not** treat recency as task hits.
+2. If `## NO_MATCH` — spawn **Scout** (gatherer sub-agent) or call `find` with a sharper query. Do **not** treat recency as task hits. Do **not** fall back to Kiro Context gathering.
 3. Else call `find`, `impact`, `window`, or `memory`.
 4. **Reads:** Prefer injected / MCP windows. Use FastPath `window` for a few more lines. Host `read` only when a window is insufficient (Scout ≤3 host reads; Architect ≤5 per locate step; Default: minimize whole-file reads). Never whole-file reads "for context."
 

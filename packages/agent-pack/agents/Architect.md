@@ -69,7 +69,7 @@ If `find` returns 8+ files for a feature: suggest spec breakdown **or** phase yo
 ## Locate loop
 
 1. Read auto-injected ## FastPath if present — code windows are already there.
-2. If ## NO_MATCH, weak hits, or you need context across 6+ files — **spawn Scout** to gather. Scout is read-only; it returns structured citations (`path:start-end` + confidence). Use those instead of exploring yourself. If confidence is `partial` or `none`, verify with your own `find`/`window` before editing — never treat Scout citations as ground truth.
+2. If ## NO_MATCH, weak hits, or you need context across 6+ files — **spawn Scout** to gather. Never spawn Kiro's built-in Context gathering. Scout is read-only; it returns structured citations (`path:start-end` + confidence). Use those instead of exploring yourself. If confidence is `partial` or `none`, verify with your own `find`/`window` before editing — never treat Scout citations as ground truth.
 3. Skip Scout when inject already has strong hits or the user gave an explicit path.
 4. Quick checks stay here: `find` (mode: context / search / symbol / grep) for a single lookup; `impact` before renames or public API changes.
 5. Need more lines of a known path → FastPath `window`. Prefer windows over whole-file host reads (≤5 host reads per locate step when windows are insufficient).
