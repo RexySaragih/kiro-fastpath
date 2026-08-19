@@ -1,8 +1,10 @@
+import { ArrowsClockwise } from '@phosphor-icons/react';
 import { motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { fetchViz } from '../api';
-import type { CountRow, VizMetricsSummary, VizPageData } from '../types';
+import type { CountRow, JobResult, JobSpec, VizMetricsSummary, VizPageData } from '../types';
 import { EmptyState, InlineError, Panel, PanelLabel } from '../components/EmptyState';
+import { MagneticButton } from '../components/MagneticButton';
 import { ScreenSkeleton } from '../components/Skeleton';
 
 const SPRING = { type: 'spring' as const, stiffness: 100, damping: 20 };
@@ -102,32 +104,45 @@ function CountList({ rows }: { rows: CountRow[] }) {
   );
 }
 
-export function SignalScreen({ workspace }: { workspace: string }) {
+export function SignalScreen({
+  workspace,
+  onRun,
+}: {
+  workspace: string;
+  onRun: (spec: JobSpec) => Promise<JobResult>;
+}) {
   const [data, setData] = useState<VizPageData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [scope, setScope] = useState<'project' | 'global'>('project');
 
-  useEffect(() => {
-    let live = true;
+  const reload = useCallback(() => {
     setLoading(true);
-    fetchViz(workspace)
+    return fetchViz(workspace)
       .then((d) => {
-        if (live) {
-          setData(d);
-          setError(null);
-        }
+        setData(d);
+        setError(null);
       })
       .catch((err: unknown) => {
-        if (live) setError(err instanceof Error ? err.message : String(err));
+        setError(err instanceof Error ? err.message : String(err));
       })
-      .finally(() => {
-        if (live) setLoading(false);
-      });
-    return () => {
-      live = false;
-    };
+      .finally(() => setLoading(false));
   }, [workspace]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  async function indexAndReload() {
+    setBusy(true);
+    try {
+      await onRun({ verb: 'index', workspace });
+      await reload();
+    } finally {
+      setBusy(false);
+    }
+  }
 
   if (loading) return <ScreenSkeleton />;
   if (error) {
@@ -136,6 +151,11 @@ export function SignalScreen({ workspace }: { workspace: string }) {
         title="No index snapshot"
         body={error}
         command={`fastpath index ${workspace}`}
+        action={
+          <MagneticButton disabled={busy} onClick={() => void indexAndReload()}>
+            {busy ? 'Indexing…' : 'Run index now'}
+          </MagneticButton>
+        }
       />
     );
   }
@@ -162,6 +182,16 @@ export function SignalScreen({ workspace }: { workspace: string }) {
               <p className="font-mono text-[11px] tracking-[0.18em] text-stone-500 uppercase">
                 Token ledger
               </p>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void reload()}
+                title="Refresh metrics"
+                className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-stone-300 px-3 py-1.5 text-xs text-stone-700 active:scale-[0.98] disabled:opacity-40"
+              >
+                <ArrowsClockwise weight="regular" className="size-3.5" />
+                Refresh
+              </button>
               <div className="relative flex rounded-full border border-stone-200 p-1">
                 {(['project', 'global'] as const).map((id) => (
                   <button

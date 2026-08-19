@@ -7,6 +7,12 @@ export interface FastpathConfig {
   lastWorkspace: string | null;
 }
 
+export interface RepoIndexStats {
+  files: number;
+  symbols: number;
+  indexedAt: string | null;
+}
+
 export interface StatePayload {
   version: string;
   home: string;
@@ -16,6 +22,9 @@ export interface StatePayload {
   cli: string;
   wired: string[];
   config: FastpathConfig;
+  modelsReady?: boolean;
+  modelCache?: string;
+  repoStats?: Record<string, RepoIndexStats>;
 }
 
 export interface IndexStats {
@@ -154,4 +163,10 @@ export interface ActiveJob {
   running: boolean;
   lines: Array<{ stream: 'stdout' | 'stderr'; line: string }>;
   exitCode: number | null;
+}
+
+/** Resolved job outcome: exit code plus the last stderr line for inline errors. */
+export interface JobResult {
+  code: number | null;
+  tail: string | null;
 }

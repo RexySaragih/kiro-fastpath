@@ -1,11 +1,11 @@
-import { CaretDown, Eye, GitDiff, Plugs, Trash, Waveform } from '@phosphor-icons/react';
+import { CaretDown, Eye, GitDiff, Plugs, Plus, Trash, Waveform } from '@phosphor-icons/react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useState } from 'react';
-import { ApiError } from '../api';
-import type { ActiveJob, JobSpec, StatePayload } from '../types';
+import { ApiError, pickFolder } from '../api';
+import type { ActiveJob, JobResult, JobSpec, RepoIndexStats, StatePayload } from '../types';
 import { EmptyState, Field, InlineError, Panel, PanelLabel, TextInput } from '../components/EmptyState';
 import { MagneticButton } from '../components/MagneticButton';
-import { splitWired } from '../workspace';
+import { baseName, splitWired, timeAgo } from '../workspace';
 
 const SPRING = { type: 'spring' as const, stiffness: 100, damping: 20 };
 
@@ -18,17 +18,19 @@ export function ReposScreen({
 }: {
   state: StatePayload;
   jobs: ActiveJob[];
-  onRun: (spec: JobSpec) => Promise<number | null>;
+  onRun: (spec: JobSpec) => Promise<JobResult>;
   onRefresh: () => Promise<void>;
   onSelect: (path: string) => void;
 }) {
   const { durable, ephemeral } = splitWired(state.config.workspaces);
+  const repoStats = state.repoStats ?? {};
   const [selected, setSelected] = useState<string | null>(durable[0]?.[0] ?? null);
   const [ephemeralOpen, setEphemeralOpen] = useState(false);
   const [confirm, setConfirm] = useState('');
   const [mode, setMode] = useState<'rebuild' | 'unwire' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState(false);
 
   const watching = jobs.find((j) => j.verb === 'watch' && j.running && j.workspace === selected);
 
@@ -39,32 +41,63 @@ export function ReposScreen({
     onSelect(path);
   }
 
-  async function go(spec: JobSpec) {
+  async function go(spec: JobSpec): Promise<boolean> {
     setError(null);
     setBusy(true);
     try {
-      const code = await onRun(spec);
-      if (code && code !== 0) setError(`${spec.verb} failed`);
+      const { code, tail } = await onRun(spec);
       await onRefresh();
+      if (code && code !== 0) {
+        setError(tail ? `${spec.verb} failed: ${tail}` : `${spec.verb} failed`);
+        return false;
+      }
       if (spec.verb === 'unwire' && spec.workspace === selected) {
         setSelected(durable.find(([p]) => p !== spec.workspace)?.[0] ?? null);
       }
+      return true;
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);
         if (err.confirmTarget) setConfirm('');
       } else setError(err instanceof Error ? err.message : String(err));
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
+  async function addRepo() {
+    setError(null);
+    setAdding(true);
+    try {
+      const path = await pickFolder();
+      if (!path) return;
+      const wired = await go({ verb: 'use', workspace: path });
+      if (wired) {
+        choose(path);
+        await go({ verb: 'index', workspace: path });
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  const addButton = (
+    <MagneticButton disabled={busy || adding} onClick={() => void addRepo()}>
+      <Plus weight="regular" className="size-4" />
+      {adding ? 'Adding…' : 'Add a repo'}
+    </MagneticButton>
+  );
+
   if (durable.length === 0 && ephemeral.length === 0) {
     return (
       <EmptyState
         title="No wired workspaces"
-        body="Wire a repo from Setup, or run the CLI. Token rollups only list repos that have emitted journal events."
+        body="Pick a repo folder to connect and index it, or run the CLI."
         command="fastpath use /path/to/your-repo"
+        action={addButton}
       />
     );
   }
@@ -72,10 +105,11 @@ export function ReposScreen({
   return (
     <div className="grid gap-8 lg:grid-cols-[2fr_1fr]">
       <div>
+        <div className="mb-6 flex justify-end">{addButton}</div>
         {durable.length === 0 ? (
           <EmptyState
             title="No durable workspaces"
-            body="Wired entries are test/temp dirs (same bucket viz calls Ephemeral). Wire a real repo, or unwire the leftovers."
+            body="Wired entries are test/temp dirs (same bucket viz calls Ephemeral). Add a real repo, or remove the leftovers."
             command="fastpath use /path/to/your-repo"
           />
         ) : (
@@ -87,6 +121,10 @@ export function ReposScreen({
                     key={path}
                     path={path}
                     wiredAt={meta.wiredAt}
+                    stats={repoStats[path]}
+                    watching={jobs.some(
+                      (j) => j.verb === 'watch' && j.running && j.workspace === path,
+                    )}
                     selected={selected === path}
                     index={i}
                     onClick={() => choose(path)}
@@ -139,7 +177,7 @@ export function ReposScreen({
             </Panel>
             <PanelLabel
               title="Ephemeral"
-              body="Test leftovers under /var/folders and /tmp. Unwire to drop them from config.json — the dir does not need to still exist."
+              body="Test leftovers under /var/folders and /tmp. Remove them to drop them from config.json — the dir does not need to still exist."
             />
           </div>
         ) : null}
@@ -153,7 +191,7 @@ export function ReposScreen({
               <p className="mt-2 font-mono text-xs break-all text-stone-600">{selected}</p>
               <div className="mt-6 grid grid-cols-1 gap-3">
                 <MagneticButton disabled={busy} onClick={() => go({ verb: 'index', workspace: selected })}>
-                  Index
+                  Update index
                 </MagneticButton>
                 <MagneticButton
                   variant="ghost"
@@ -161,7 +199,7 @@ export function ReposScreen({
                   onClick={() => go({ verb: 'index', workspace: selected, flags: ['--git'] })}
                 >
                   <GitDiff weight="regular" className="size-4" />
-                  Index --git
+                  Index git history
                 </MagneticButton>
                 <MagneticButton
                   variant="ghost"
@@ -169,7 +207,7 @@ export function ReposScreen({
                   onClick={() => go({ verb: 'watch', workspace: selected })}
                 >
                   <Waveform weight="regular" className="size-4" />
-                  {watching ? 'Watching' : 'Watch'}
+                  {watching ? 'Watching for changes' : 'Watch for changes'}
                 </MagneticButton>
                 <MagneticButton
                   variant="ghost"
@@ -177,16 +215,20 @@ export function ReposScreen({
                   onClick={() => go({ verb: 'use', workspace: selected })}
                 >
                   <Plugs weight="regular" className="size-4" />
-                  Rewire this repo
+                  Reconnect
                 </MagneticButton>
                 <MagneticButton variant="ghost" disabled={busy} onClick={() => setMode('rebuild')}>
-                  Index --rebuild
+                  Full rebuild
                 </MagneticButton>
                 <MagneticButton variant="danger" disabled={busy} onClick={() => setMode('unwire')}>
                   <Trash weight="regular" className="size-4" />
-                  Unwire
+                  Remove from FastPath
                 </MagneticButton>
               </div>
+              <p className="mt-4 text-xs leading-relaxed text-stone-500">
+                Update is incremental. Full rebuild rescans from scratch. Remove only unwires — your
+                code stays untouched.
+              </p>
             </Panel>
             <PanelLabel title="Jobs" body="Long runs stream into the dock. Watch stays until you stop it." />
           </>
@@ -218,9 +260,9 @@ export function ReposScreen({
                   verb: 'index',
                   workspace: selected,
                   flags: ['--rebuild'],
-                  confirm,
+                  confirm: selected,
                 }
-              : { verb: 'unwire', workspace: selected, confirm };
+              : { verb: 'unwire', workspace: selected, confirm: selected };
           void go(spec).then(() => {
             setMode(null);
             setConfirm('');
@@ -248,6 +290,7 @@ function ConfirmDialog({
   onCancel: () => void;
   onOk: () => void;
 }) {
+  const folder = path ? baseName(path) : '';
   return (
     <AnimatePresence>
       {mode && path ? (
@@ -279,27 +322,27 @@ function ConfirmDialog({
             </h2>
             <p className="mt-2 text-base leading-relaxed text-stone-600">
               {mode === 'unwire'
-                ? 'Deletes FastPath wiring in that folder. Type the path to confirm.'
-                : 'Deletes the current index and scans the repo from scratch. Type the path to confirm.'}
+                ? 'Deletes FastPath wiring in that folder. Your code is untouched.'
+                : 'Deletes the current index and scans the repo from scratch.'}
             </p>
             <p className="mt-4 break-all font-mono text-sm text-stone-900">{path}</p>
             <div className="mt-6">
-              <Field label="Type the path above">
+              <Field label={`Type "${folder}" to confirm`}>
                 <TextInput
                   autoFocus
                   value={confirm}
                   onChange={(e) => onConfirmChange(e.target.value)}
-                  placeholder={path}
+                  placeholder={folder}
                 />
               </Field>
             </div>
             <div className="mt-6 flex flex-wrap gap-3">
               <MagneticButton
                 variant={mode === 'unwire' ? 'danger' : 'primary'}
-                disabled={busy || confirm !== path}
+                disabled={busy || confirm !== folder}
                 onClick={onOk}
               >
-                {busy ? 'Working…' : mode === 'unwire' ? 'Unwire' : 'Rebuild'}
+                {busy ? 'Working…' : mode === 'unwire' ? 'Remove' : 'Rebuild'}
               </MagneticButton>
               <MagneticButton variant="ghost" onClick={onCancel}>
                 Cancel
@@ -315,16 +358,21 @@ function ConfirmDialog({
 function RepoRow({
   path,
   wiredAt,
+  stats,
+  watching,
   selected,
   index,
   onClick,
 }: {
   path: string;
   wiredAt: string;
+  stats?: RepoIndexStats;
+  watching?: boolean;
   selected: boolean;
   index: number;
   onClick: () => void;
 }) {
+  const indexed = Boolean(stats?.indexedAt);
   return (
     <motion.li
       custom={index}
@@ -339,8 +387,27 @@ function RepoRow({
           selected ? 'bg-amber-50' : ''
         }`}
       >
-        <p className="font-mono text-sm break-all text-stone-900">{path}</p>
-        <p className="mt-1 font-mono text-[11px] text-stone-500">wired {wiredAt}</p>
+        <div className="flex items-center gap-3">
+          <p className="min-w-0 flex-1 font-mono text-sm break-all text-stone-900">{path}</p>
+          {watching ? (
+            <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 font-mono text-[10px] text-emerald-800">
+              watching
+            </span>
+          ) : null}
+          {stats ? (
+            <span
+              className={`shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] ${
+                indexed ? 'bg-stone-100 text-stone-600' : 'bg-amber-100 text-amber-800'
+              }`}
+            >
+              {timeAgo(stats.indexedAt)}
+            </span>
+          ) : null}
+        </div>
+        <p className="mt-1 font-mono text-[11px] text-stone-500">
+          wired {wiredAt}
+          {stats && stats.files > 0 ? ` · ${stats.files} files · ${stats.symbols} symbols` : ''}
+        </p>
       </button>
     </motion.li>
   );

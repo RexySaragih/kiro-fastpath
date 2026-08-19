@@ -1,10 +1,11 @@
-import { CheckCircle, Warning, Info } from '@phosphor-icons/react';
+import { ArrowsClockwise, CheckCircle, Warning, Info } from '@phosphor-icons/react';
 import { motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { fetchDoctor } from '../api';
-import type { DoctorResult } from '../types';
+import type { DoctorResult, JobResult, JobSpec } from '../types';
 import { BreathingDot } from '../components/BreathingDot';
 import { EmptyState, InlineError, Panel, PanelLabel } from '../components/EmptyState';
+import { MagneticButton } from '../components/MagneticButton';
 import { ScreenSkeleton } from '../components/Skeleton';
 
 const SPRING = { type: 'spring' as const, stiffness: 100, damping: 20 };
@@ -48,40 +49,71 @@ function Column({
   );
 }
 
-export function HealthScreen({ workspace }: { workspace: string }) {
+export function HealthScreen({
+  workspace,
+  onRun,
+}: {
+  workspace: string;
+  onRun: (spec: JobSpec) => Promise<JobResult>;
+}) {
   const [data, setData] = useState<DoctorResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    let live = true;
+  const reload = useCallback(() => {
     setLoading(true);
-    fetchDoctor(workspace)
+    return fetchDoctor(workspace)
       .then((d) => {
-        if (live) {
-          setData(d);
-          setError(null);
-        }
+        setData(d);
+        setError(null);
       })
       .catch((err: unknown) => {
-        if (live) setError(err instanceof Error ? err.message : String(err));
+        setError(err instanceof Error ? err.message : String(err));
       })
-      .finally(() => {
-        if (live) setLoading(false);
-      });
-    return () => {
-      live = false;
-    };
+      .finally(() => setLoading(false));
   }, [workspace]);
 
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  async function runAndReload(spec: JobSpec) {
+    setBusy(true);
+    try {
+      await onRun(spec);
+      await reload();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (loading) return <ScreenSkeleton />;
-  if (error) return <InlineError message={error} />;
+  if (error) {
+    return (
+      <EmptyState
+        title="Doctor could not run"
+        body={error}
+        command={`fastpath doctor ${workspace}`}
+        action={
+          <MagneticButton disabled={busy} onClick={() => void reload()}>
+            Retry
+          </MagneticButton>
+        }
+      />
+    );
+  }
   if (!data) {
     return (
       <EmptyState
         title="Doctor has not run"
         body="Open this screen against a workspace that exists on disk."
         command={`fastpath doctor ${workspace}`}
+        action={
+          <MagneticButton disabled={busy} onClick={() => void reload()}>
+            Run doctor
+          </MagneticButton>
+        }
       />
     );
   }
@@ -97,7 +129,27 @@ export function HealthScreen({ workspace }: { workspace: string }) {
             <h2 className="text-3xl tracking-tighter text-stone-900">
               {data.ready ? 'Ready' : 'Not ready'}
             </h2>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void reload()}
+              title="Run doctor again"
+              className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-stone-300 px-3 py-1.5 text-xs text-stone-700 active:scale-[0.98] disabled:opacity-40"
+            >
+              <ArrowsClockwise weight="regular" className="size-3.5" />
+              Refresh
+            </button>
           </div>
+          {!data.ready && data.stats.files === 0 ? (
+            <div className="mt-4">
+              <MagneticButton
+                disabled={busy}
+                onClick={() => void runAndReload({ verb: 'index', workspace })}
+              >
+                {busy ? 'Indexing…' : 'Run index now'}
+              </MagneticButton>
+            </div>
+          ) : null}
           <p className="mt-2 font-mono text-xs text-stone-500 break-all">{data.workspace}</p>
           <dl className="mt-8 grid grid-cols-2 gap-x-6 gap-y-4 font-mono text-sm">
             <div>

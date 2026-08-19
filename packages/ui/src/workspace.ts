@@ -21,6 +21,24 @@ export function splitWired(
   return { durable, ephemeral };
 }
 
+export function baseName(p: string): string {
+  const parts = p.replace(/\\/g, '/').replace(/\/+$/, '').split('/');
+  return parts[parts.length - 1] || p;
+}
+
+export function timeAgo(iso: string | null): string {
+  if (!iso) return 'never indexed';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return 'indexed just now';
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return 'indexed just now';
+  if (minutes < 60) return `indexed ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `indexed ${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `indexed ${days}d ago`;
+}
+
 export function pickDurableWorkspace(state: {
   wired: string[];
   config: { lastWorkspace: string | null; workspaces: Record<string, unknown> };
