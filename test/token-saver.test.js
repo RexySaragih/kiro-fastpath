@@ -107,6 +107,24 @@ test('Ignore: gitignore negation and root anchoring respected', async () => {
   }
 });
 
+test('Ignore: minified bundles skipped; unminified public JS kept', async () => {
+  const { IgnoreMatcher } = await core();
+  const dir = mkdtempSync(join(tmpdir(), 'fastpath-ignore-min-'));
+  try {
+    const matcher = new IgnoreMatcher(dir);
+    assert.equal(matcher.ignores(dir, join(dir, 'public/js/pdf.worker.min.mjs')), true);
+    assert.equal(matcher.ignores(dir, join(dir, 'public/js/vendor.min.js')), true);
+    assert.equal(matcher.ignores(dir, join(dir, 'src/lib.min.cjs')), true);
+    assert.equal(matcher.ignores(dir, join(dir, 'public/js/app.js')), false);
+    assert.equal(matcher.ignores(dir, join(dir, 'src/app.ts')), false);
+    writeFileSync(join(dir, '.fastpathignore'), '!src/legacy.min.js\n');
+    const withNegation = new IgnoreMatcher(dir);
+    assert.equal(withNegation.ignores(dir, join(dir, 'src/legacy.min.js')), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('Ignore: test/ outside src/ stays indexed even when gitignored', async () => {
   const { IgnoreMatcher } = await core();
   const dir = mkdtempSync(join(tmpdir(), 'fastpath-keep-test-'));

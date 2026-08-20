@@ -10,5 +10,8 @@ coverage/
 .turbo/
 .fastpath/
 *.min.js
+*.min.mjs
+*.min.cjs
+public/**/*.min.*
 *.log
 .git/

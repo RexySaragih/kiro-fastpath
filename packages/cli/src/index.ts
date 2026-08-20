@@ -129,6 +129,9 @@ coverage/
 .nx/
 .next/
 *.min.js
+*.min.mjs
+*.min.cjs
+public/**/*.min.*
 `,
     );
   }

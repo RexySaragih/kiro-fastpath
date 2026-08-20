@@ -162,6 +162,17 @@ export const DEFAULT_KEEP_DIRS = new Set([
   'e2e',
 ]);
 
+/**
+ * Minified bundles (Next `public/` workers, CDNs, `*.min.mjs`). Not first-party
+ * source. `.fastpathignore` can negate (`!path/to/kept.min.js`) — last match wins.
+ */
+export const DEFAULT_IGNORE_PATTERNS = [
+  '*.min.js',
+  '*.min.mjs',
+  '*.min.cjs',
+  'public/**/*.min.*',
+] as const;
+
 /** Languages with symbol extraction (parser or regex fallback). */
 export const SYMBOL_EXTENSIONS = new Set([
   '.ts',

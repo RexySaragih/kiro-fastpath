@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import { DEFAULT_IGNORE_DIRS, DEFAULT_KEEP_DIRS } from './types.js';
+import { DEFAULT_IGNORE_DIRS, DEFAULT_IGNORE_PATTERNS, DEFAULT_KEEP_DIRS } from './types.js';
 
 function loadPatternFile(workspace: string, name: string): string[] {
   const path = join(workspace, name);
@@ -45,6 +45,7 @@ export class IgnoreMatcher {
     // noisy subtrees (e.g. test/fixtures/).
     const patterns = [
       ...[...DEFAULT_IGNORE_DIRS].map((d) => `${d}/`),
+      ...DEFAULT_IGNORE_PATTERNS,
       ...loadPatternFile(workspace, '.gitignore'),
       ...loadPatternFile(workspace, '.kiroignore'),
       ...[...DEFAULT_KEEP_DIRS].map((d) => `!${d}/`),
