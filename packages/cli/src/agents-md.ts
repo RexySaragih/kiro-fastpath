@@ -4,16 +4,11 @@
  */
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { renderModes, type ModeSettings } from "./modes.js";
 
 export const AGENTS_MD_MARKER = "<!-- fastpath:agents -->";
 /** Prior marker — still treated as FastPath-managed for refresh/remove. */
 export const AGENTS_MD_MARKER_LEGACY = "<!-- fastpath:caveman -->";
-
-/** Sticky lines for inject / session-start (Default agent nudge). */
-export const CAVEMAN_OUTPUT_NUDGE =
-  "OUTPUT MODE = caveman full. MANDATORY on every response until explicitly disabled.";
-export const PONYTAIL_CODE_NUDGE =
-  "CODE MODE = ponytail full. MANDATORY when writing or changing code.";
 
 export function agentsMdPath(workspace: string): string {
   return join(workspace, "AGENTS.md");
@@ -27,40 +22,42 @@ function managedMarkerIndex(body: string): number {
 
 /**
  * Write or refresh FastPath-managed AGENTS.md.
- * - Missing → write template
- * - Ours (marker) → overwrite/refresh FastPath block from template
+ * - Missing → write body
+ * - Ours (marker) → overwrite/refresh FastPath block from body
  * - Foreign (no marker) → append FastPath section once
  */
-export function ensureAgentsMd(workspace: string, templatePath: string): void {
-  if (!existsSync(templatePath)) return;
+export function ensureAgentsMd(workspace: string, body: string): void {
   const dest = agentsMdPath(workspace);
-  const template = readFileSync(templatePath, "utf8");
-  const body = template.endsWith("\n") ? template : `${template}\n`;
+  const content = body.endsWith("\n") ? body : `${body}\n`;
 
   if (!existsSync(dest)) {
-    writeFileSync(dest, body);
+    writeFileSync(dest, content);
     return;
   }
 
   const existing = readFileSync(dest, "utf8");
   const idx = managedMarkerIndex(existing);
   if (idx < 0) {
-    writeFileSync(dest, `${existing.trimEnd()}\n\n${body}`);
+    writeFileSync(dest, `${existing.trimEnd()}\n\n${content}`);
     return;
   }
   const before = existing.slice(0, idx).trimEnd();
   if (!before) {
-    writeFileSync(dest, body);
+    writeFileSync(dest, content);
     return;
   }
-  writeFileSync(dest, `${before}\n\n${body}`);
+  writeFileSync(dest, `${before}\n\n${content}`);
 }
 
 export function ensureAgentsMdFromPack(
   workspace: string,
   agentPackDir: string,
+  modes: ModeSettings,
 ): void {
-  ensureAgentsMd(workspace, join(agentPackDir, "AGENTS.md"));
+  const templatePath = join(agentPackDir, "AGENTS.md");
+  if (!existsSync(templatePath)) return;
+  const rendered = renderModes(readFileSync(templatePath, "utf8"), modes);
+  ensureAgentsMd(workspace, rendered);
 }
 
 /** Remove FastPath AGENTS.md block; delete file if nothing else remains. */

@@ -50,6 +50,19 @@ import {
 } from './doctor.js';
 import { runBuiltinEval } from './eval.js';
 import { appendMetric, readMetrics, summarizeMetrics, tokenLedger } from './metrics.js';
+import {
+  isModeKey,
+  isModeLevel,
+  MODE_KEYS,
+  MODE_LEVELS,
+  renderModes,
+  resolveModes,
+  setModeLevel,
+  workspaceKey,
+  type ModeKey,
+  type ModeLevel,
+  type ModeSettings,
+} from './modes.js';
 import { runViz } from './viz.js';
 
 const ROOT = PACKAGE_ROOT;
@@ -79,6 +92,7 @@ Usage:
   fastpath repair-native                 Rebuild better-sqlite3 / onnx / sharp
   fastpath home|version|metrics [--summary|--tokens]
   fastpath memory list|forget <id>|distill [workspace]
+  fastpath modes [ws] [--json] | modes set <caveman|ponytail> <off|lite|full|ultra|inherit> [ws] [--global] [--no-apply]
   fastpath viz [workspace] [--no-open] [--out file.html]  # HTML report: this project + all FastPath
   fastpath ui [workspace] [--port N] [--no-open]  # localhost control panel
 
@@ -135,7 +149,7 @@ public/**/*.min.*
 `,
     );
   }
-  ensureAgentsMdFromPack(workspace, AGENT_PACK);
+  ensureAgentsMdFromPack(workspace, AGENT_PACK, resolveModes(workspace).effective);
   console.log(`Initialized FastPath in ${workspace}`);
   console.log(`- ${dir}/`);
   console.log(`- ${ignorePath}`);
@@ -287,6 +301,7 @@ function installAgentTemplates(
   agentsDir: string,
   home: string,
   mcpServerPath: string,
+  modes: ModeSettings,
 ): void {
   const values = {
     __FASTPATH_MCP__: mcpServerPath,
@@ -300,7 +315,7 @@ function installAgentTemplates(
     const src = join(AGENT_PACK, 'agents', name);
     if (!existsSync(src)) continue;
     assertIdeCompatibleAgentFile(src, readFileSync(src, 'utf8'));
-    const body = fillPlaceholders(readFileSync(src, 'utf8'), values);
+    const body = renderModes(fillPlaceholders(readFileSync(src, 'utf8'), values), modes);
     assertIdeCompatibleAgentFile(join(agentsDir, name), body);
     writeFileSync(join(agentsDir, name), body);
   }
@@ -326,6 +341,27 @@ function copySteeringFile(src: string, dest: string, keep: boolean): void {
     return;
   }
   copyFileSync(src, dest);
+}
+
+function writeModeSteering(
+  key: ModeKey,
+  steeringDir: string,
+  modes: ModeSettings,
+  keep: boolean,
+): void {
+  const dest = join(steeringDir, `${key}.md`);
+  if (modes[key] === 'off') {
+    if (existsSync(dest)) unlinkSync(dest);
+    return;
+  }
+  if (keep && existsSync(dest)) {
+    console.log(`Keeping existing steering: ${dest}`);
+    return;
+  }
+  const src = join(AGENT_PACK, 'steering', `${key}.md`);
+  if (!existsSync(src)) return;
+  const body = renderModes(readFileSync(src, 'utf8'), modes);
+  writeFileSync(dest, body.endsWith('\n') ? body : `${body}\n`);
 }
 
 function disableSiblingMcps(mcpPath: string): void {
@@ -368,6 +404,7 @@ function cmdInstallKiro(
     process.exit(2);
   }
 
+  const modes = resolveModes(workspace).effective;
   const home = resolveFastpathHome();
   const agentsDir = join(workspace, '.kiro/agents');
   const steeringDir = join(workspace, '.kiro/steering');
@@ -409,7 +446,7 @@ function cmdInstallKiro(
   };
 
   try {
-    installAgentTemplates(workspace, agentsDir, home, mcpServerPath);
+    installAgentTemplates(workspace, agentsDir, home, mcpServerPath, modes);
   } catch (err) {
     console.error(err instanceof Error ? err.message : err);
     process.exit(2);
@@ -421,17 +458,9 @@ function cmdInstallKiro(
     join(steeringDir, 'fastpath.md'),
     keep,
   );
-  copySteeringFile(
-    join(AGENT_PACK, 'steering', 'caveman.md'),
-    join(steeringDir, 'caveman.md'),
-    keep,
-  );
-  copySteeringFile(
-    join(AGENT_PACK, 'steering', 'ponytail.md'),
-    join(steeringDir, 'ponytail.md'),
-    keep,
-  );
-  ensureAgentsMdFromPack(workspace, AGENT_PACK);
+  writeModeSteering('caveman', steeringDir, modes, keep);
+  writeModeSteering('ponytail', steeringDir, modes, keep);
+  ensureAgentsMdFromPack(workspace, AGENT_PACK, modes);
 
   mkdirSync(join(workspace, '.kiro/skills'), { recursive: true });
   for (const skill of ['caveman', 'ponytail'] as const) {
@@ -439,6 +468,11 @@ function cmdInstallKiro(
     const skillDest = join(workspace, '.kiro/skills', skill);
     if (existsSync(skillSrc)) {
       cpSync(skillSrc, skillDest, { recursive: true });
+      const skillMd = join(skillDest, 'SKILL.md');
+      if (existsSync(skillMd)) {
+        const rendered = renderModes(readFileSync(skillMd, 'utf8'), modes);
+        writeFileSync(skillMd, rendered.endsWith('\n') ? rendered : `${rendered}\n`);
+      }
     }
   }
 
@@ -519,6 +553,7 @@ function cmdInstallKiro(
 
   console.log(`Installed Kiro FastPath pack into ${workspace}`);
   console.log(`FastPath home: ${home}`);
+  console.log(`- modes: caveman=${modes.caveman} ponytail=${modes.ponytail}`);
   console.log('- .kiro/agents/Scout.md (gatherer sub-agent, /scout)');
   console.log('- .kiro/agents/Architect.md (6+ files / design, /architect)');
   console.log('- .kiro/steering/fastpath.md (always-on retrieval)');
@@ -860,6 +895,86 @@ async function cmdMemory(args: string[]): Promise<void> {
   }
 }
 
+function modesSnapshot(workspace: string) {
+  const abs = workspaceKey(workspace);
+  const r = resolveModes(abs);
+  return {
+    levels: [...MODE_LEVELS],
+    effective: r.effective,
+    workspace: r.workspace,
+    global: r.global,
+    wired: listWiredWorkspaces().includes(abs),
+  };
+}
+
+function cmdModes(args: string[]): void {
+  const jsonFlag = takeFlag(args, '--json');
+  const [sub, ...rest] = jsonFlag.args;
+
+  if (sub === 'set') {
+    const globalFlag = takeFlag(rest, '--global');
+    const noApply = takeFlag(globalFlag.args, '--no-apply');
+    const positional = noApply.args.filter((a) => !a.startsWith('--'));
+    const key = positional[0];
+    const level = positional[1];
+    const wsArg = positional[2];
+    const usageSet =
+      'usage: fastpath modes set <caveman|ponytail> <off|lite|full|ultra|inherit> [ws] [--global] [--no-apply]';
+
+    if (!isModeKey(key) || (level !== 'inherit' && !isModeLevel(level))) {
+      console.error(usageSet);
+      process.exit(1);
+    }
+
+    try {
+      if (globalFlag.set) {
+        setModeLevel({}, key, level as ModeLevel | 'inherit');
+      } else {
+        const workspace = resolve(wsArg || process.env.FASTPATH_WORKSPACE || process.cwd());
+        setModeLevel({ workspace }, key, level as ModeLevel | 'inherit');
+      }
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+
+    if (noApply.set) {
+      console.log('Saved (no apply).');
+      return;
+    }
+
+    if (globalFlag.set) {
+      const wired = listWiredWorkspaces();
+      if (wired.length) {
+        cmdRewire(true, process.cwd());
+      } else {
+        console.log('Saved global default. No wired workspaces to rewire.');
+      }
+      return;
+    }
+
+    const workspace = resolve(wsArg || process.env.FASTPATH_WORKSPACE || process.cwd());
+    const abs = workspaceKey(workspace);
+    if (listWiredWorkspaces().includes(abs)) {
+      cmdInstallKiro(workspace);
+    } else {
+      console.log(`Saved. Run \`fastpath use ${workspace}\` to apply.`);
+    }
+    return;
+  }
+
+  const workspace = workspaceFromArgs(jsonFlag.args);
+  const snap = modesSnapshot(workspace);
+  if (jsonFlag.set) {
+    console.log(JSON.stringify(snap, null, 2));
+    return;
+  }
+  for (const key of MODE_KEYS) {
+    const source = resolveModes(workspace).sources[key];
+    console.log(`${key}=${snap.effective[key]} (${source})`);
+  }
+}
+
 async function main(): Promise<void> {
   const [, , cmd, ...rest] = process.argv;
   if (!cmd || cmd === '-h' || cmd === '--help') usage();
@@ -1012,6 +1127,9 @@ async function main(): Promise<void> {
     }
     case 'memory':
       await cmdMemory(rest);
+      break;
+    case 'modes':
+      cmdModes(rest);
       break;
     case 'viz': {
       const noOpen = takeFlag(rest, '--no-open');

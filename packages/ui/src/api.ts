@@ -1,4 +1,4 @@
-import type { ActiveJob, DoctorResult, IndexStats, JobSpec, StatePayload, VizPageData } from './types';
+import type { ActiveJob, DoctorResult, IndexStats, JobSpec, ModeLevel, ModesPayload, StatePayload, VizPageData } from './types';
 
 const TOKEN_KEY = 'fastpath.ui.token';
 
@@ -67,6 +67,18 @@ export function fetchViz(workspace: string): Promise<VizPageData> {
 
 export function fetchStatus(workspace: string): Promise<IndexStats> {
   return api(`/api/status?workspace=${encodeURIComponent(workspace)}`);
+}
+
+export function fetchModes(workspace: string): Promise<ModesPayload> {
+  return api(`/api/modes?workspace=${encodeURIComponent(workspace)}`);
+}
+
+export function putModes(body: {
+  workspace?: string;
+  caveman?: ModeLevel | 'inherit';
+  ponytail?: ModeLevel | 'inherit';
+}): Promise<ModesPayload> {
+  return api('/api/modes', { method: 'PUT', body: JSON.stringify(body) });
 }
 
 export async function postJob(spec: JobSpec): Promise<{ jobId: string }> {

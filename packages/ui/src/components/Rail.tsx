@@ -3,6 +3,7 @@ import {
   FolderSimple,
   GearSix,
   Pulse,
+  SlidersHorizontal,
 } from '@phosphor-icons/react';
 import { motion } from 'framer-motion';
 import type { ScreenId } from '../types';
@@ -12,6 +13,7 @@ const ITEMS: Array<{ id: ScreenId; label: string; Icon: typeof GearSix }> = [
   { id: 'setup', label: 'Setup', Icon: GearSix },
   { id: 'repos', label: 'Repos', Icon: FolderSimple },
   { id: 'health', label: 'Health', Icon: FirstAid },
+  { id: 'modes', label: 'Modes', Icon: SlidersHorizontal },
   { id: 'signal', label: 'Signal', Icon: Pulse },
 ];
 

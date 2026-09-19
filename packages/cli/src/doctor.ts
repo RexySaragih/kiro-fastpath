@@ -23,6 +23,7 @@ import {
 } from './config.js';
 import { appendMetric, readMetrics } from './metrics.js';
 import { readHeartbeats, type HookName } from './hook-util.js';
+import { resolveModes, type ModeSettings } from './modes.js';
 
 const coreRequire = createRequire(join(PACKAGE_ROOT, 'packages/core/package.json'));
 
@@ -178,6 +179,7 @@ function checkAgentFile(
   path: string,
   issues: string[],
   ok: string[],
+  modes: ModeSettings,
 ): void {
   if (!existsSync(path)) {
     issues.push(`${label} agent missing — run \`fastpath install-kiro\``);
@@ -221,23 +223,33 @@ function checkAgentFile(
   } else {
     ok.push(`${label} wires /ponytail skill`);
   }
-  if (!/OUTPUT MODE\s*=\s*caveman full/i.test(body)) {
-    issues.push(
-      `${label} missing OUTPUT MODE = caveman full in system prompt — re-run \`fastpath install-kiro\``,
-    );
-  } else {
-    ok.push(`${label} sets OUTPUT MODE caveman full`);
-  }
-  if (!/CODE MODE\s*=\s*ponytail full/i.test(body)) {
-    if (label === 'Scout') {
-      ok.push(`${label} skips CODE MODE ponytail (gather-only, no code)`);
-    } else {
+  if (modes.caveman === 'off') {
+    if (/OUTPUT MODE\s*=\s*caveman/i.test(body)) {
       issues.push(
-        `${label} missing CODE MODE = ponytail full in system prompt — re-run \`fastpath install-kiro\``,
+        `${label}: caveman is off but still sets OUTPUT MODE — re-run \`fastpath rewire\``,
       );
     }
+  } else if (!new RegExp(`OUTPUT MODE\\s*=\\s*caveman ${modes.caveman}`, 'i').test(body)) {
+    issues.push(
+      `${label} missing OUTPUT MODE = caveman ${modes.caveman} in system prompt — re-run \`fastpath install-kiro\``,
+    );
   } else {
-    ok.push(`${label} sets CODE MODE ponytail full`);
+    ok.push(`${label} sets OUTPUT MODE caveman ${modes.caveman}`);
+  }
+  if (label === 'Scout') {
+    ok.push(`${label} skips CODE MODE ponytail (gather-only, no code)`);
+  } else if (modes.ponytail === 'off') {
+    if (/CODE MODE\s*=\s*ponytail/i.test(body)) {
+      issues.push(
+        `${label}: ponytail is off but still sets CODE MODE — re-run \`fastpath rewire\``,
+      );
+    }
+  } else if (!new RegExp(`CODE MODE\\s*=\\s*ponytail ${modes.ponytail}`, 'i').test(body)) {
+    issues.push(
+      `${label} missing CODE MODE = ponytail ${modes.ponytail} in system prompt — re-run \`fastpath install-kiro\``,
+    );
+  } else {
+    ok.push(`${label} sets CODE MODE ponytail ${modes.ponytail}`);
   }
   if (!/\bBad:\s*/.test(body) || !/\bGood:\s*/.test(body)) {
     // Few-shot examples live in steering/skills; agent bodies keep a short activation stanza.
@@ -268,18 +280,32 @@ function checkAgentFile(
   }
 }
 
-function checkSteeringCaveman(workspace: string, issues: string[], ok: string[]): void {
+function checkSteeringCaveman(
+  workspace: string,
+  issues: string[],
+  ok: string[],
+  modes: ModeSettings,
+): void {
   const cavemanPath = join(workspace, '.kiro/steering/caveman.md');
-  if (!existsSync(cavemanPath)) {
+  if (modes.caveman === 'off') {
+    if (existsSync(cavemanPath)) {
+      issues.push(
+        'caveman is off but .kiro/steering/caveman.md still present — re-run `fastpath rewire`',
+      );
+    } else {
+      ok.push('Caveman off (configured)');
+    }
+  } else if (!existsSync(cavemanPath)) {
     issues.push('Steering caveman.md missing — run `fastpath install-kiro` / rewire');
   } else {
     const body = readFileSync(cavemanPath, 'utf8');
-    if (!/#\s*Caveman full/i.test(body) || !/MANDATORY on every response/i.test(body)) {
+    const heading = new RegExp(`#\\s*Caveman ${modes.caveman}`, 'i');
+    if (!heading.test(body) || !/MANDATORY on every response/i.test(body)) {
       issues.push(
-        'Steering caveman.md missing Caveman full / MANDATORY — re-run `fastpath install-kiro` / rewire',
+        `Steering caveman.md missing Caveman ${modes.caveman} / MANDATORY — re-run \`fastpath install-kiro\` / rewire`,
       );
     } else {
-      ok.push('Steering includes Caveman full (caveman.md)');
+      ok.push(`Steering includes Caveman ${modes.caveman} (caveman.md)`);
     }
   }
   const skillPath = join(workspace, '.kiro/skills/caveman/SKILL.md');
@@ -290,16 +316,28 @@ function checkSteeringCaveman(workspace: string, issues: string[], ok: string[])
   }
 
   const ponytailPath = join(workspace, '.kiro/steering/ponytail.md');
-  if (!existsSync(ponytailPath)) {
+  if (modes.ponytail === 'off') {
+    if (existsSync(ponytailPath)) {
+      issues.push(
+        'ponytail is off but .kiro/steering/ponytail.md still present — re-run `fastpath rewire`',
+      );
+    } else {
+      ok.push('Ponytail off (configured)');
+    }
+  } else if (!existsSync(ponytailPath)) {
     issues.push('Steering ponytail.md missing — run `fastpath install-kiro` / rewire');
   } else {
     const pBody = readFileSync(ponytailPath, 'utf8');
-    if (!/YAGNI/i.test(pBody) || !/lazy senior/i.test(pBody) || !/CODE MODE\s*=\s*ponytail.*MANDATORY/i.test(pBody)) {
+    if (
+      !/YAGNI/i.test(pBody) ||
+      !/lazy senior/i.test(pBody) ||
+      !new RegExp(`CODE MODE\\s*=\\s*ponytail ${modes.ponytail}.*MANDATORY`, 'i').test(pBody)
+    ) {
       issues.push(
-        'Steering ponytail.md missing YAGNI / lazy senior / CODE MODE MANDATORY — re-run `fastpath install-kiro` / rewire',
+        `Steering ponytail.md missing YAGNI / lazy senior / CODE MODE ${modes.ponytail} MANDATORY — re-run \`fastpath install-kiro\` / rewire`,
       );
     } else {
-      ok.push('Steering includes Ponytail full (ponytail.md)');
+      ok.push(`Steering includes Ponytail ${modes.ponytail} (ponytail.md)`);
     }
   }
   const ponytailSkill = join(workspace, '.kiro/skills/ponytail/SKILL.md');
@@ -312,24 +350,59 @@ function checkSteeringCaveman(workspace: string, issues: string[], ok: string[])
   const agentsMd = join(workspace, 'AGENTS.md');
   if (!existsSync(agentsMd)) {
     issues.push(
-      'AGENTS.md missing (Default-agent caveman + ponytail) — run `fastpath init` or `fastpath install-kiro`',
+      'AGENTS.md missing (Default-agent FastPath block) — run `fastpath init` or `fastpath install-kiro`',
     );
   } else {
     const agentsBody = readFileSync(agentsMd, 'utf8');
     const hasMarker =
       agentsBody.includes('<!-- fastpath:agents -->') ||
       agentsBody.includes('<!-- fastpath:caveman -->');
-    if (
-      !hasMarker ||
-      !/OUTPUT MODE\s*=\s*caveman.*MANDATORY/i.test(agentsBody) ||
-      !/CODE MODE\s*=\s*ponytail.*MANDATORY/i.test(agentsBody) ||
-      !/YAGNI/i.test(agentsBody)
-    ) {
+    if (!hasMarker) {
       issues.push(
         'AGENTS.md missing FastPath caveman+ponytail block — re-run `fastpath init` / `install-kiro`',
       );
     } else {
-      ok.push('AGENTS.md includes caveman + ponytail (Default agent)');
+      let bad = false;
+      if (modes.caveman === 'off') {
+        if (/OUTPUT MODE\s*=\s*caveman/i.test(agentsBody)) {
+          issues.push(
+            'caveman is off but AGENTS.md still sets OUTPUT MODE — re-run `fastpath rewire`',
+          );
+          bad = true;
+        }
+      } else if (
+        !new RegExp(`OUTPUT MODE\\s*=\\s*caveman ${modes.caveman}.*MANDATORY`, 'i').test(
+          agentsBody,
+        )
+      ) {
+        bad = true;
+      }
+      if (modes.ponytail === 'off') {
+        if (/CODE MODE\s*=\s*ponytail/i.test(agentsBody)) {
+          issues.push(
+            'ponytail is off but AGENTS.md still sets CODE MODE — re-run `fastpath rewire`',
+          );
+          bad = true;
+        }
+      } else if (
+        !new RegExp(`CODE MODE\\s*=\\s*ponytail ${modes.ponytail}.*MANDATORY`, 'i').test(
+          agentsBody,
+        ) ||
+        !/YAGNI/i.test(agentsBody)
+      ) {
+        bad = true;
+      }
+      if (bad && !issues.some((i) => i.includes('AGENTS.md'))) {
+        issues.push(
+          'AGENTS.md missing FastPath mode block for configured levels — re-run `fastpath install-kiro`',
+        );
+      } else if (!bad) {
+        if (modes.caveman !== 'off' && modes.ponytail !== 'off') {
+          ok.push('AGENTS.md includes caveman + ponytail (Default agent)');
+        } else {
+          ok.push('AGENTS.md includes FastPath Default-agent block');
+        }
+      }
     }
   }
 }
@@ -361,12 +434,15 @@ export interface DoctorResult {
   version: string;
   home: string;
   workspace: string;
+  modes?: ModeSettings;
 }
 
 export async function runDoctor(workspace: string): Promise<DoctorResult> {
   const issues: string[] = [];
   const ok: string[] = [];
   const notes: string[] = [];
+  const modes = resolveModes(workspace).effective;
+  notes.push(`modes: caveman=${modes.caveman} ponytail=${modes.ponytail}`);
   const dbPath = resolveDbPath(workspace);
   const stats = getIndexStats(workspace);
   let embedBackend = 'unknown';
@@ -497,7 +573,7 @@ export async function runDoctor(workspace: string): Promise<DoctorResult> {
     }
     if (total > 4000) issues.push(`Steering ~${total} tokens (prefer <4000 always-on)`);
     else ok.push(`Steering ~${total} tokens`);
-    checkSteeringCaveman(workspace, issues, ok);
+    checkSteeringCaveman(workspace, issues, ok, modes);
   } else {
     issues.push('No .kiro/steering — run `fastpath install-kiro` for caveman + retrieval steering');
   }
@@ -509,8 +585,8 @@ export async function runDoctor(workspace: string): Promise<DoctorResult> {
   }
 
   const agentsDir = join(workspace, '.kiro/agents');
-  checkAgentFile('Scout', join(agentsDir, 'Scout.md'), issues, ok);
-  checkAgentFile('Architect', join(agentsDir, 'Architect.md'), issues, ok);
+  checkAgentFile('Scout', join(agentsDir, 'Scout.md'), issues, ok, modes);
+  checkAgentFile('Architect', join(agentsDir, 'Architect.md'), issues, ok, modes);
 
   for (const legacy of ['Marshal.md', 'Router.md'] as const) {
     if (existsSync(join(agentsDir, legacy))) {
@@ -779,6 +855,7 @@ export async function runDoctor(workspace: string): Promise<DoctorResult> {
     version: readPackageVersion(),
     home,
     workspace,
+    modes,
   };
 }
 

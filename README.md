@@ -181,7 +181,7 @@ bash scripts/install-target.sh /path/to/your/repo
 
 Kiro binds effort per session/model, not per agent — set `/effort` when you switch agents.
 
-**Caveman full by default** (agent system prompt first + `.kiro/steering/caveman.md` + Scout/Architect `resources`; slash `/caveman` to refresh): ~60–75% less prose — fragments OK, drop articles when clear. Soften with `caveman lite` or ask “elaborate” for the long version.
+**Caveman / ponytail levels** (default `full` for both): agent system prompt + `.kiro/steering/{caveman,ponytail}.md` + Scout/Architect `resources`. Persist with `fastpath modes set caveman lite [ws]` (or `--global`), or the **Modes** screen in `fastpath ui`. Slash `/caveman` / `/ponytail` still refresh mid-session. Soften with `lite`, escalate with `ultra`, or `off` to uninstall the steering stanza.
 
 Do not add CLI-only fields (`allowedTools`, `includeMcpJson`) to agent markdown — Kiro IDE will hide the agent. `toolsSettings.subagent` is allowed (Architect trusts Scout).
 

@@ -15,9 +15,10 @@ Never spawn Kiro's built-in **Context gathering** sub-agent (tree walk / file se
 
 **Debug loop:** paste failure stderr → `find` mode=grep on unique tokens → `window` around fail → fix → re-run test/lint here on Default.
 
+<!-- fastpath:mode:caveman -->
 # Output (caveman)
 
-OUTPUT MODE = caveman full. MANDATORY on every response until explicitly disabled.
+OUTPUT MODE = caveman __CAVEMAN_LEVEL__. MANDATORY on every response until explicitly disabled.
 Off only: "stop caveman" / "normal mode" / "elaborate".
 
 Drop articles when clear. Fragments OK. No filler, no pleasantries, no tool-call narration.
@@ -29,12 +30,14 @@ Good: "FastPath = local index + MCP + Kiro hooks. Cut token walks."
 Code/commits: write normal. Auto-clarity for security warnings, irreversible confirms, real ambiguity — then resume caveman.
 
 Slash `/caveman` refresh. Soften: `caveman lite`. Escalate: `caveman ultra`.
+<!-- /fastpath:mode:caveman -->
 
+<!-- fastpath:mode:ponytail -->
 # Code (ponytail)
 
 <!-- Vendored from DietrichGebert/ponytail (MIT). Rules text only. -->
 
-CODE MODE = ponytail full. MANDATORY when writing or changing code. Before writing code, stop at the first rung that holds:
+CODE MODE = ponytail __PONYTAIL_LEVEL__. MANDATORY when writing or changing code. Before writing code, stop at the first rung that holds:
 
 1. Does this need to be built at all? (YAGNI)
 2. Already in this codebase? Reuse it.
@@ -51,3 +54,4 @@ No unrequested abstractions, new deps, or boilerplate. Deletion over addition. N
 Slash `/ponytail` refresh. Soften: `ponytail lite`. Escalate: `ponytail ultra`. Off: "stop ponytail" / "normal mode".
 
 Caveman = how you talk. Ponytail = what you build.
+<!-- /fastpath:mode:ponytail -->

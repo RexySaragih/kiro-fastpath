@@ -38,19 +38,24 @@ test('advertised MCP surface is 4 tools under the fixed-overhead budget', async 
   );
 });
 
-test('steering does not duplicate the tool-pick table', () => {
+test('steering does not duplicate the tool-pick table', async () => {
   const retrieval = readFileSync(
     join(root, 'packages/agent-pack/steering/fastpath.md'),
     'utf8',
   );
-  const caveman = readFileSync(
+  const cavemanRaw = readFileSync(
     join(root, 'packages/agent-pack/steering/caveman.md'),
     'utf8',
   );
-  const ponytail = readFileSync(
+  const ponytailRaw = readFileSync(
     join(root, 'packages/agent-pack/steering/ponytail.md'),
     'utf8',
   );
+  const { DEFAULT_MODES, renderModes } = await import(
+    join(root, 'packages/cli/dist/modes.js')
+  );
+  const caveman = renderModes(cavemanRaw, DEFAULT_MODES);
+  const ponytail = renderModes(ponytailRaw, DEFAULT_MODES);
   assert.doesNotMatch(retrieval, /\| Need \| Tool \|/);
   assert.doesNotMatch(retrieval, /context_for_task|grep_fast|memory_recall|memory_save/);
   assert.match(retrieval, /grep -r/);

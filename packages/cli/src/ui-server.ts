@@ -25,10 +25,22 @@ import {
   getJob,
   JobValidationError,
   killJob,
+  requireExistingAbs,
   startJob,
   type JobLine,
 } from './ui-jobs.js';
 import { pickFolder } from './ui-pick-folder.js';
+import {
+  DEFAULT_MODES,
+  isModeKey,
+  isModeLevel,
+  MODE_LEVELS,
+  resolveModes,
+  setModeLevel,
+  workspaceKey,
+  type ModeKey,
+  type ModeLevel,
+} from './modes.js';
 import { buildVizPageData } from './viz.js';
 
 const DEFAULT_PORT = 8787;
@@ -162,6 +174,28 @@ function workspaceFrom(url: URL, fallback: string): string {
   return q && q.length > 0 ? q : fallback;
 }
 
+function modesPayload(workspace?: string) {
+  if (!workspace) {
+    const r = resolveModes(process.cwd());
+    return {
+      levels: [...MODE_LEVELS],
+      effective: { ...DEFAULT_MODES, ...r.global },
+      workspace: {},
+      global: r.global,
+      wired: false,
+    };
+  }
+  const abs = workspaceKey(workspace);
+  const r = resolveModes(abs);
+  return {
+    levels: [...MODE_LEVELS],
+    effective: r.effective,
+    workspace: r.workspace,
+    global: r.global,
+    wired: listWiredWorkspaces().includes(abs),
+  };
+}
+
 function writeSse(res: ServerResponse, data: unknown): void {
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
@@ -214,6 +248,67 @@ async function handleApi(
   if (method === 'GET' && path === '/api/status') {
     const workspace = workspaceFrom(url, defaultWorkspace);
     send(res, 200, getIndexStats(workspace));
+    return;
+  }
+
+  if (method === 'GET' && path === '/api/modes') {
+    const workspace = workspaceFrom(url, defaultWorkspace);
+    send(res, 200, modesPayload(workspace));
+    return;
+  }
+
+  if (method === 'PUT' && path === '/api/modes') {
+    let body: unknown;
+    try {
+      body = await readJson(req);
+    } catch {
+      send(res, 400, { error: 'invalid json' });
+      return;
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      send(res, 400, { error: 'invalid json' });
+      return;
+    }
+    const obj = body as Record<string, unknown>;
+    let workspace: string | undefined;
+    if (obj.workspace !== undefined) {
+      if (typeof obj.workspace !== 'string') {
+        send(res, 400, { error: 'workspace must be an absolute path' });
+        return;
+      }
+      try {
+        workspace = requireExistingAbs('workspace', obj.workspace);
+      } catch (err) {
+        if (err instanceof JobValidationError) {
+          send(res, err.status, { error: err.message });
+          return;
+        }
+        send(res, 400, { error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+    }
+    for (const [key, value] of Object.entries(obj)) {
+      if (key === 'workspace') continue;
+      if (!isModeKey(key)) {
+        send(res, 400, { error: 'unknown key' });
+        return;
+      }
+      if (value !== 'inherit' && !isModeLevel(value)) {
+        send(res, 400, { error: 'unknown level' });
+        return;
+      }
+      try {
+        setModeLevel(
+          workspace ? { workspace } : {},
+          key as ModeKey,
+          value as ModeLevel | 'inherit',
+        );
+      } catch (err) {
+        send(res, 400, { error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+    }
+    send(res, 200, modesPayload(workspace));
     return;
   }
 

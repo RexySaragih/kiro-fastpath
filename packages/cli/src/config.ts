@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,10 +7,21 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 /** Monorepo root when running from packages/cli/dist */
 export const PACKAGE_ROOT = resolve(__dirname, '../../..');
 
+export type ConfigModeLevel = 'off' | 'lite' | 'full' | 'ultra';
+export type ConfigModeSettings = Partial<
+  Record<'caveman' | 'ponytail', ConfigModeLevel>
+>;
+
+export interface WorkspaceEntry {
+  wiredAt: string;
+  modes?: ConfigModeSettings;
+}
+
 export interface FastpathConfig {
   home: string;
   version: string;
-  workspaces: Record<string, { wiredAt: string }>;
+  modes?: ConfigModeSettings;
+  workspaces: Record<string, WorkspaceEntry>;
   lastWorkspace: string | null;
 }
 
@@ -68,6 +79,7 @@ export function loadConfig(): FastpathConfig {
     return {
       home: raw.home ?? home,
       version: raw.version ?? version,
+      ...(raw.modes ? { modes: raw.modes } : {}),
       workspaces: raw.workspaces ?? {},
       lastWorkspace: raw.lastWorkspace ?? null,
     };
@@ -85,8 +97,20 @@ export function recordWorkspaceWired(workspace: string): void {
   const cfg = loadConfig();
   cfg.home = resolveFastpathHome();
   cfg.version = readPackageVersion(cfg.home);
-  cfg.workspaces[resolve(workspace)] = { wiredAt: new Date().toISOString() };
-  cfg.lastWorkspace = resolve(workspace);
+  const key = resolve(workspace);
+  let abs = key;
+  try {
+    if (existsSync(key)) abs = realpathSync(key);
+  } catch {
+    /* keep resolve() key */
+  }
+  const prev = cfg.workspaces[abs] ?? cfg.workspaces[key];
+  if (prev && abs !== key) delete cfg.workspaces[key];
+  cfg.workspaces[abs] = {
+    wiredAt: new Date().toISOString(),
+    ...(prev?.modes ? { modes: prev.modes } : {}),
+  };
+  cfg.lastWorkspace = abs;
   saveConfig(cfg);
 }
 

@@ -5,6 +5,7 @@ import { JobDock } from './components/JobDock';
 import { Rail } from './components/Rail';
 import { ScreenSkeleton } from './components/Skeleton';
 import { HealthScreen } from './screens/Health';
+import { ModesScreen } from './screens/Modes';
 import { ReposScreen } from './screens/Repos';
 import { SetupScreen } from './screens/Setup';
 import { SignalScreen } from './screens/Signal';
@@ -26,6 +27,10 @@ const TITLES: Record<ScreenId, { h: string; p: string }> = {
   health: {
     h: 'Is this repo ready?',
     p: 'Doctor checks the index, hooks, and agents for the selected workspace.',
+  },
+  modes: {
+    h: 'How terse, how lazy.',
+    p: 'Caveman shapes replies. Ponytail shapes code. Saved per repo, rendered into .kiro on apply.',
   },
   signal: {
     h: 'Did FastPath save tokens?',
@@ -119,7 +124,7 @@ export function App() {
 
   const setupDone = state ? isSetupComplete(state) : false;
   const title = screen === 'setup' && setupDone ? SETUP_DONE_TITLE : TITLES[screen];
-  const showsWorkspace = screen === 'health' || screen === 'signal';
+  const showsWorkspace = screen === 'health' || screen === 'signal' || screen === 'modes';
   const activeWorkspace = workspace || state?.home || '';
   const durableWired = state ? state.wired.filter((p) => !isEphemeralWorkspace(p)) : [];
 
@@ -184,6 +189,13 @@ export function App() {
                 ) : null}
                 {screen === 'health' ? (
                   <HealthScreen workspace={activeWorkspace} onRun={runJob} />
+                ) : null}
+                {screen === 'modes' ? (
+                  <ModesScreen
+                    workspace={activeWorkspace}
+                    onRun={runJob}
+                    onOpenRepos={() => setScreen('repos')}
+                  />
                 ) : null}
                 {screen === 'signal' ? (
                   <SignalScreen workspace={activeWorkspace} onRun={runJob} />

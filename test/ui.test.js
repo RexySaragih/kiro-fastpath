@@ -315,3 +315,152 @@ test('UI server listens on loopback only', async () => {
     rmSync(uiRoot, { recursive: true, force: true });
   }
 });
+
+test('modes API get/put/validate', async () => {
+  const userDir = mkdtempSync(join(tmpdir(), 'fastpath-ui-modes-user-'));
+  const ws = mkdtempSync(join(tmpdir(), 'fastpath-ui-modes-ws-'));
+  const uiRoot = mkdtempSync(join(tmpdir(), 'fastpath-ui-modes-static-'));
+  const prevUser = process.env.FASTPATH_USER_DIR;
+  process.env.FASTPATH_USER_DIR = userDir;
+  for (const [k, v] of Object.entries(envBase)) process.env[k] = v;
+  writeFileSync(join(uiRoot, 'index.html'), '<!doctype html><title>fp</title>');
+
+  const { startUiServer } = await import(join(root, 'packages/cli/dist/ui-server.js'));
+  const token = 'm'.repeat(64);
+  const handle = await startUiServer({
+    workspace: ws,
+    port: 0,
+    token,
+    uiRoot,
+    openBrowser: false,
+  });
+
+  try {
+    const auth = { Authorization: `Bearer ${token}` };
+    const loopbackHost = `127.0.0.1:${handle.port}`;
+    const qs = `workspace=${encodeURIComponent(ws)}`;
+
+    const noTok = await httpCall({
+      port: handle.port,
+      path: `/api/modes?${qs}`,
+      headers: { Host: loopbackHost },
+    });
+    assert.equal(noTok.status, 401);
+
+    const get1 = await httpCall({
+      port: handle.port,
+      path: `/api/modes?${qs}`,
+      headers: { Host: loopbackHost, ...auth },
+    });
+    assert.equal(get1.status, 200);
+    const g1 = JSON.parse(get1.body);
+    assert.deepEqual(g1.levels, ['off', 'lite', 'full', 'ultra']);
+    assert.equal(g1.effective.caveman, 'full');
+    assert.equal(g1.effective.ponytail, 'full');
+    assert.equal(g1.wired, false);
+
+    const putWs = await httpCall({
+      port: handle.port,
+      path: '/api/modes',
+      method: 'PUT',
+      headers: {
+        Host: loopbackHost,
+        ...auth,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ workspace: ws, caveman: 'lite' }),
+    });
+    assert.equal(putWs.status, 200, putWs.body);
+    const p1 = JSON.parse(putWs.body);
+    assert.equal(p1.effective.caveman, 'lite');
+    assert.equal(p1.workspace.caveman, 'lite');
+
+    const get2 = await httpCall({
+      port: handle.port,
+      path: `/api/modes?${qs}`,
+      headers: { Host: loopbackHost, ...auth },
+    });
+    assert.equal(JSON.parse(get2.body).effective.caveman, 'lite');
+
+    const badLevel = await httpCall({
+      port: handle.port,
+      path: '/api/modes',
+      method: 'PUT',
+      headers: {
+        Host: loopbackHost,
+        ...auth,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ workspace: ws, caveman: 'loud' }),
+    });
+    assert.equal(badLevel.status, 400);
+    assert.match(badLevel.body, /unknown level/);
+
+    const badKey = await httpCall({
+      port: handle.port,
+      path: '/api/modes',
+      method: 'PUT',
+      headers: {
+        Host: loopbackHost,
+        ...auth,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ workspace: ws, loudness: 'lite' }),
+    });
+    assert.equal(badKey.status, 400);
+    assert.match(badKey.body, /unknown key/);
+
+    const rel = await httpCall({
+      port: handle.port,
+      path: '/api/modes',
+      method: 'PUT',
+      headers: {
+        Host: loopbackHost,
+        ...auth,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ workspace: 'relative/path', caveman: 'lite' }),
+    });
+    assert.equal(rel.status, 400);
+
+    const inheritGlobal = await httpCall({
+      port: handle.port,
+      path: '/api/modes',
+      method: 'PUT',
+      headers: {
+        Host: loopbackHost,
+        ...auth,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ caveman: 'inherit' }),
+    });
+    assert.equal(inheritGlobal.status, 400);
+    assert.match(inheritGlobal.body, /inherit not allowed at global scope/);
+
+    const putGlobal = await httpCall({
+      port: handle.port,
+      path: '/api/modes',
+      method: 'PUT',
+      headers: {
+        Host: loopbackHost,
+        ...auth,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ caveman: 'ultra' }),
+    });
+    assert.equal(putGlobal.status, 200, putGlobal.body);
+    const pg = JSON.parse(putGlobal.body);
+    assert.equal(pg.global.caveman, 'ultra');
+    assert.equal(pg.wired, false);
+    assert.deepEqual(pg.workspace, {});
+
+    assert.equal(existsSync(join(ws, '.kiro')), false);
+  } finally {
+    await handle.close();
+    if (prevUser === undefined) delete process.env.FASTPATH_USER_DIR;
+    else process.env.FASTPATH_USER_DIR = prevUser;
+    rmSync(userDir, { recursive: true, force: true });
+    rmSync(ws, { recursive: true, force: true });
+    rmSync(uiRoot, { recursive: true, force: true });
+  }
+});

@@ -129,7 +129,7 @@ export function needsWorkspace(spec: Pick<JobSpec, 'verb' | 'flags'>): boolean {
   return WORKSPACE_REQUIRED.has(spec.verb);
 }
 
-function requireExistingAbs(label: string, value: string): string {
+export function requireExistingAbs(label: string, value: string): string {
   if (!isAbsolute(value)) {
     throw new JobValidationError(`${label} must be an absolute path`, 400);
   }

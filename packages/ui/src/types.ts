@@ -1,4 +1,16 @@
-export type ScreenId = 'setup' | 'repos' | 'health' | 'signal';
+export type ScreenId = 'setup' | 'repos' | 'health' | 'modes' | 'signal';
+
+export type ModeLevel = 'off' | 'lite' | 'full' | 'ultra';
+export type ModeKey = 'caveman' | 'ponytail';
+export type ModeSettings = Record<ModeKey, ModeLevel>;
+
+export interface ModesPayload {
+  levels: ModeLevel[];
+  effective: ModeSettings;
+  workspace: Partial<ModeSettings>;
+  global: Partial<ModeSettings>;
+  wired: boolean;
+}
 
 export interface FastpathConfig {
   home: string;
@@ -59,6 +71,7 @@ export interface DoctorResult {
   version: string;
   home: string;
   workspace: string;
+  modes?: { caveman: string; ponytail: string };
 }
 
 export interface CountRow {
