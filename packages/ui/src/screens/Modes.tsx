@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
-import { fetchModes, putModes } from '../api';
+import { fetchModes, fetchPrefs, putModes, putPrefs } from '../api';
 import type {
+  EffortLevel,
   JobResult,
   JobSpec,
   ModeKey,
   ModeLevel,
   ModesPayload,
   ModeSettings,
+  PrefsPayload,
 } from '../types';
 import { EmptyState, InlineError, Panel, PanelLabel } from '../components/EmptyState';
 import { MagneticButton } from '../components/MagneticButton';
@@ -14,6 +16,7 @@ import { ScreenSkeleton } from '../components/Skeleton';
 import { isEphemeralWorkspace } from '../workspace';
 
 const LEVELS: ModeLevel[] = ['off', 'lite', 'full', 'ultra'];
+const EFFORTS: EffortLevel[] = ['low', 'medium', 'high'];
 
 const CAVEMAN_BLURB: Record<ModeLevel, string> = {
   off: 'Disabled — rules not installed',
@@ -141,32 +144,46 @@ export function ModesScreen({
 }) {
   const durable = Boolean(workspace) && !isEphemeralWorkspace(workspace);
   const [data, setData] = useState<ModesPayload | null>(null);
+  const [prefs, setPrefs] = useState<PrefsPayload | null>(null);
   const [wsDraft, setWsDraft] = useState<ModeSettings | null>(null);
   const [globalDraft, setGlobalDraft] = useState<ModeSettings | null>(null);
+  const [injectDraft, setInjectDraft] = useState<PrefsPayload['effective']['inject'] | null>(
+    null,
+  );
+  const [effortDraft, setEffortDraft] = useState<
+    PrefsPayload['effective']['effortReminders'] | null
+  >(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyWs, setBusyWs] = useState(false);
   const [busyGlobal, setBusyGlobal] = useState(false);
+  const [busyPrefs, setBusyPrefs] = useState(false);
   const [msgWs, setMsgWs] = useState<string | null>(null);
   const [msgGlobal, setMsgGlobal] = useState<string | null>(null);
+  const [msgPrefs, setMsgPrefs] = useState<string | null>(null);
   const [errWs, setErrWs] = useState<string | null>(null);
   const [errGlobal, setErrGlobal] = useState<string | null>(null);
+  const [errPrefs, setErrPrefs] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     if (!durable) {
       setLoading(false);
       setData(null);
+      setPrefs(null);
       return Promise.resolve();
     }
     setLoading(true);
-    return fetchModes(workspace)
-      .then((payload) => {
-        setData(payload);
-        setWsDraft({ ...payload.effective });
+    return Promise.all([fetchModes(workspace), fetchPrefs(workspace)])
+      .then(([modesPayload, prefsPayload]) => {
+        setData(modesPayload);
+        setPrefs(prefsPayload);
+        setWsDraft({ ...modesPayload.effective });
         setGlobalDraft({
-          caveman: payload.global.caveman ?? 'full',
-          ponytail: payload.global.ponytail ?? 'full',
+          caveman: modesPayload.global.caveman ?? 'full',
+          ponytail: modesPayload.global.ponytail ?? 'full',
         });
+        setInjectDraft({ ...prefsPayload.effective.inject });
+        setEffortDraft({ ...prefsPayload.effective.effortReminders });
         setError(null);
       })
       .catch((err: unknown) => {
@@ -194,7 +211,7 @@ export function ModesScreen({
   }
 
   if (loading) return <ScreenSkeleton />;
-  if (error || !data || !wsDraft || !globalDraft) {
+  if (error || !data || !wsDraft || !globalDraft || !prefs || !injectDraft || !effortDraft) {
     return (
       <EmptyState
         title="Modes could not load"
@@ -212,6 +229,88 @@ export function ModesScreen({
   const globalDirty =
     globalDraft.caveman !== (data.global.caveman ?? 'full') ||
     globalDraft.ponytail !== (data.global.ponytail ?? 'full');
+  const prefsDirty =
+    injectDraft.maxHits !== prefs.effective.inject.maxHits ||
+    injectDraft.contextChunks !== prefs.effective.inject.contextChunks ||
+    injectDraft.tokenBudget !== prefs.effective.inject.tokenBudget ||
+    effortDraft.scout !== prefs.effective.effortReminders.scout ||
+    effortDraft.architect !== prefs.effective.effortReminders.architect;
+
+  async function applyPreset(name: string) {
+    const preset = data.presets?.[name];
+    if (!preset) return;
+    setBusyWs(true);
+    setErrWs(null);
+    setMsgWs(null);
+    try {
+      await putModes({
+        workspace,
+        caveman: preset.caveman,
+        ponytail: preset.ponytail,
+      });
+      if (data.wired) {
+        const result = await onRun({ verb: 'rewire', workspace });
+        if (result.code !== 0) {
+          setErrWs(result.tail ?? `rewire failed (exit ${result.code})`);
+          return;
+        }
+      }
+      setMsgWs(`Preset ${name} applied`);
+      await reload();
+    } catch (err: unknown) {
+      setErrWs(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyWs(false);
+    }
+  }
+
+  async function resetWorkspaceModes() {
+    setBusyWs(true);
+    setErrWs(null);
+    setMsgWs(null);
+    try {
+      await putModes({ workspace, caveman: 'inherit', ponytail: 'inherit' });
+      if (data.wired) {
+        const result = await onRun({ verb: 'rewire', workspace });
+        if (result.code !== 0) {
+          setErrWs(result.tail ?? `rewire failed (exit ${result.code})`);
+          return;
+        }
+      }
+      setMsgWs('Reset to defaults');
+      await reload();
+    } catch (err: unknown) {
+      setErrWs(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyWs(false);
+    }
+  }
+
+  async function savePrefs() {
+    setBusyPrefs(true);
+    setMsgPrefs(null);
+    setErrPrefs(null);
+    try {
+      await putPrefs({
+        workspace,
+        inject: injectDraft,
+        effortReminders: effortDraft,
+      });
+      if (data.wired) {
+        const result = await onRun({ verb: 'rewire', workspace });
+        if (result.code !== 0) {
+          setErrPrefs(result.tail ?? `rewire failed (exit ${result.code})`);
+          return;
+        }
+      }
+      setMsgPrefs('Saved — reload Kiro for agent effort text');
+      await reload();
+    } catch (err: unknown) {
+      setErrPrefs(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyPrefs(false);
+    }
+  }
 
   async function saveWorkspace() {
     if (!data || !wsDraft) return;
@@ -386,6 +485,119 @@ export function ModesScreen({
         <PanelLabel
           title="Default for all repos"
           body="Sets ~/.fastpath/config.json modes, then rewires every wired repo."
+        />
+      </div>
+
+      <div className="lg:col-span-2">
+        <Panel>
+          <h2 className="text-2xl tracking-tight text-stone-900">Presets & reset</h2>
+          <p className="mt-2 max-w-[65ch] text-sm leading-relaxed text-stone-600">
+            One-click talk/code pairs. Reset clears this repo&apos;s overrides.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            {Object.entries(data.presets ?? {}).map(([name, p]) => (
+              <MagneticButton
+                key={name}
+                disabled={busyWs}
+                onClick={() => void applyPreset(name)}
+              >
+                {p.label}
+              </MagneticButton>
+            ))}
+            <MagneticButton disabled={busyWs} onClick={() => void resetWorkspaceModes()}>
+              Reset this repo
+            </MagneticButton>
+          </div>
+          {msgWs ? (
+            <p className="mt-4 text-sm tracking-tight text-emerald-700">{msgWs}</p>
+          ) : null}
+          {errWs ? (
+            <div className="mt-4">
+              <InlineError message={errWs} />
+            </div>
+          ) : null}
+        </Panel>
+      </div>
+
+      <div className="lg:col-span-2">
+        <Panel>
+          <h2 className="text-2xl tracking-tight text-stone-900">Inject pack & effort reminders</h2>
+          <p className="mt-2 max-w-[65ch] text-sm leading-relaxed text-stone-600">
+            Pack size for prompt inject. Effort is reminder-only — run /effort in the Kiro session.
+          </p>
+          <div className="mt-8 grid gap-6 sm:grid-cols-3">
+            {(
+              [
+                ['maxHits', 'Max hits', 1, 12],
+                ['contextChunks', 'Context chunks', 1, 12],
+                ['tokenBudget', 'Token budget', 400, 4000],
+              ] as const
+            ).map(([key, label, min, max]) => (
+              <label key={key} className="flex flex-col gap-2">
+                <span className="text-sm font-medium text-stone-800">
+                  {label}{' '}
+                  <span className="font-mono text-stone-500">{injectDraft[key]}</span>
+                </span>
+                <input
+                  type="range"
+                  min={min}
+                  max={max}
+                  step={key === 'tokenBudget' ? 100 : 1}
+                  value={injectDraft[key]}
+                  disabled={busyPrefs}
+                  onChange={(e) =>
+                    setInjectDraft({ ...injectDraft, [key]: Number(e.target.value) })
+                  }
+                  className="accent-stone-800"
+                />
+              </label>
+            ))}
+          </div>
+          <div className="mt-8 grid gap-6 sm:grid-cols-2">
+            {(
+              [
+                ['scout', 'Scout reminder'],
+                ['architect', 'Architect reminder'],
+              ] as const
+            ).map(([key, label]) => (
+              <label key={key} className="flex flex-col gap-2">
+                <span className="text-sm font-medium text-stone-800">{label}</span>
+                <select
+                  className="rounded border border-stone-300 bg-white px-3 py-2 text-sm text-stone-800"
+                  value={effortDraft[key]}
+                  disabled={busyPrefs}
+                  onChange={(e) =>
+                    setEffortDraft({
+                      ...effortDraft,
+                      [key]: e.target.value as EffortLevel,
+                    })
+                  }
+                >
+                  {EFFORTS.map((e) => (
+                    <option key={e} value={e}>
+                      /effort {e}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+          <div className="mt-8 flex flex-col gap-3">
+            <MagneticButton
+              disabled={!prefsDirty || busyPrefs}
+              onClick={() => void savePrefs()}
+            >
+              {busyPrefs ? 'Saving…' : 'Save inject & reminders'}
+            </MagneticButton>
+            {msgPrefs ? (
+              <p className="text-sm tracking-tight text-emerald-700">{msgPrefs}</p>
+            ) : null}
+            {errPrefs ? <InlineError message={errPrefs} /> : null}
+          </div>
+        </Panel>
+        <PanelLabel
+          title="Inject & effort"
+          body="Reminder only — Kiro effort is session-level, not per-agent."
         />
       </div>
     </div>

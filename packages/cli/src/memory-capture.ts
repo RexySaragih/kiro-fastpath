@@ -24,6 +24,7 @@ import {
   updateTurnState,
 } from './state.js';
 import { appendMetric } from './metrics.js';
+import { applyMemoryLimits } from './memory-settings.js';
 
 const PROMPT_SNIPPET_CHARS = 160;
 const MAX_PATHS_IN_MEMORY = 5;
@@ -91,6 +92,8 @@ async function run(): Promise<void> {
   recordHookPayload('memory-capture', raw, payload);
   const workspace = workspaceFromPayload(payload);
   const sessionId = sessionIdFromPayload(payload);
+  const mem = applyMemoryLimits(workspace);
+  if (!mem.capture) return;
   const state = readTurnState(workspace, sessionId);
 
   const touched = state.touchedPaths ?? [];

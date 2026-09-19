@@ -5,6 +5,7 @@ import { JobDock } from './components/JobDock';
 import { Rail } from './components/Rail';
 import { ScreenSkeleton } from './components/Skeleton';
 import { HealthScreen } from './screens/Health';
+import { MemoryScreen } from './screens/Memory';
 import { ModesScreen } from './screens/Modes';
 import { ReposScreen } from './screens/Repos';
 import { SetupScreen } from './screens/Setup';
@@ -31,6 +32,10 @@ const TITLES: Record<ScreenId, { h: string; p: string }> = {
   modes: {
     h: 'How terse, how lazy.',
     p: 'Caveman shapes replies. Ponytail shapes code. Saved per repo, rendered into .kiro on apply.',
+  },
+  memory: {
+    h: 'What sticks between sessions.',
+    p: 'Retention, capture, prune, and wipe for project memory in this workspace.',
   },
   signal: {
     h: 'Did FastPath save tokens?',
@@ -192,6 +197,13 @@ export function App() {
                 ) : null}
                 {screen === 'modes' ? (
                   <ModesScreen
+                    workspace={activeWorkspace}
+                    onRun={runJob}
+                    onOpenRepos={() => setScreen('repos')}
+                  />
+                ) : null}
+                {screen === 'memory' ? (
+                  <MemoryScreen
                     workspace={activeWorkspace}
                     onRun={runJob}
                     onOpenRepos={() => setScreen('repos')}

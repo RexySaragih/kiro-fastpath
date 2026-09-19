@@ -20,12 +20,16 @@ import {
   indexGitChanged,
   indexWorkspace,
   listMemories,
+  memoryStats,
   McpTimeouts,
+  pinMemory,
   resolveDbPath,
+  unpinMemory,
   watchWorkspace,
   warmEmbedder,
   warmParsers,
   warmReranker,
+  wipeMemories,
 } from '@fastpath/core';
 import {
   ensureAgentsMdFromPack,
@@ -63,6 +67,19 @@ import {
   type ModeLevel,
   type ModeSettings,
 } from './modes.js';
+import {
+  DEFAULT_PREFS,
+  MODE_PRESETS,
+  resolvePrefs,
+  resetModes,
+} from './prefs.js';
+import {
+  applyMemoryLimits,
+  isMemoryKey,
+  MEMORY_KEYS,
+  resolveMemory,
+  setMemorySetting,
+} from './memory-settings.js';
 import { runViz } from './viz.js';
 
 const ROOT = PACKAGE_ROOT;
@@ -91,8 +108,8 @@ Usage:
                                    Sync/build FASTPATH_HOME; --from when home has no .git
   fastpath repair-native                 Rebuild better-sqlite3 / onnx / sharp
   fastpath home|version|metrics [--summary|--tokens]
-  fastpath memory list|forget <id>|distill [workspace]
-  fastpath modes [ws] [--json] | modes set <caveman|ponytail> <off|lite|full|ultra|inherit> [ws] [--global] [--no-apply]
+  fastpath memory list|stats|forget|pin|unpin|distill|settings|set|wipe [workspace]
+  fastpath modes [ws] [--json] | modes set|reset|preset <quiet|balanced|strict> …
   fastpath viz [workspace] [--no-open] [--out file.html]  # HTML report: this project + all FastPath
   fastpath ui [workspace] [--port N] [--no-open]  # localhost control panel
 
@@ -117,14 +134,16 @@ function workspaceFromArgs(args: string[]): string {
   return resolve(positional[0] || process.env.FASTPATH_WORKSPACE || process.cwd());
 }
 
-function printKiroChecklist(): void {
+function printKiroChecklist(effort?: { scout: string; architect: string }): void {
+  const scout = effort?.scout ?? DEFAULT_PREFS.effortReminders.scout;
+  const architect = effort?.architect ?? DEFAULT_PREFS.effortReminders.architect;
   console.log('');
   console.log('Kiro checklist:');
   console.log('  1) Reload window (Cmd+Shift+P → Developer: Reload Window)');
   console.log('  2) Trust workspace if prompted (required for .kiro/agents)');
   console.log('  3) Default agent is primary; spawn Scout to gather · Architect 6+ when needed');
   console.log('  4) Hook UI → enable all fastpath-* hooks');
-  console.log('  5) Effort: Scout → /effort low · Architect → /effort medium');
+  console.log(`  5) Effort: Scout → /effort ${scout} · Architect → /effort ${architect}`);
 }
 
 function cmdInit(workspace: string): void {
@@ -302,6 +321,7 @@ function installAgentTemplates(
   home: string,
   mcpServerPath: string,
   modes: ModeSettings,
+  effort: { scout: string; architect: string },
 ): void {
   const values = {
     __FASTPATH_MCP__: mcpServerPath,
@@ -309,6 +329,8 @@ function installAgentTemplates(
     __FASTPATH_HOME__: home,
     __MCP_TIMEOUT__: String(McpTimeouts.CONNECT_MS),
     __MCP_REQUEST_TIMEOUT__: String(McpTimeouts.REQUEST_MS),
+    __EFFORT_SCOUT__: effort.scout,
+    __EFFORT_ARCHITECT__: effort.architect,
   };
 
   for (const name of AGENT_TEMPLATES) {
@@ -405,6 +427,8 @@ function cmdInstallKiro(
   }
 
   const modes = resolveModes(workspace).effective;
+  const prefs = resolvePrefs(workspace).effective;
+  const mem = resolveMemory(workspace).effective;
   const home = resolveFastpathHome();
   const agentsDir = join(workspace, '.kiro/agents');
   const steeringDir = join(workspace, '.kiro/steering');
@@ -446,7 +470,7 @@ function cmdInstallKiro(
   };
 
   try {
-    installAgentTemplates(workspace, agentsDir, home, mcpServerPath, modes);
+    installAgentTemplates(workspace, agentsDir, home, mcpServerPath, modes, prefs.effortReminders);
   } catch (err) {
     console.error(err instanceof Error ? err.message : err);
     process.exit(2);
@@ -480,9 +504,15 @@ function cmdInstallKiro(
     join(AGENT_PACK, 'hooks', 'fastpath-context.json'),
     'utf8',
   );
-  const hookBody = fillPlaceholders(hookTemplate, hookCommands);
+  let hookBody = fillPlaceholders(hookTemplate, hookCommands);
   try {
-    JSON.parse(hookBody);
+    const parsed = JSON.parse(hookBody) as { hooks?: Array<{ name?: string; enabled?: boolean }> };
+    if (Array.isArray(parsed.hooks)) {
+      for (const h of parsed.hooks) {
+        if (h.name === 'fastpath-memory-capture') h.enabled = mem.capture;
+      }
+      hookBody = `${JSON.stringify(parsed, null, 2)}\n`;
+    }
   } catch {
     console.error('Generated hook JSON is invalid — aborting install');
     process.exit(2);
@@ -571,7 +601,7 @@ function cmdInstallKiro(
   console.log('3) Run: fastpath warm && FASTPATH_EMBED=minilm fastpath index && fastpath doctor');
   console.log('4) Optional long sessions: fastpath watch');
   console.log('5) Optional: install-kiro --fastpath-only · --steering=keep');
-  printKiroChecklist();
+  printKiroChecklist(prefs.effortReminders);
 }
 
 function cmdUnwire(workspace: string, purgeIndex: boolean): void {
@@ -857,7 +887,131 @@ async function cmdEval(office: boolean, golden = false): Promise<void> {
 
 async function cmdMemory(args: string[]): Promise<void> {
   const [sub, ...restArgs] = args;
+
+  if (sub === 'settings') {
+    const jsonFlag = takeFlag(restArgs, '--json');
+    const workspace = workspaceFromArgs(jsonFlag.args);
+    const snap = resolveMemory(workspace);
+    if (jsonFlag.set) {
+      console.log(JSON.stringify({ ...snap, keys: MEMORY_KEYS }, null, 2));
+      return;
+    }
+    for (const key of MEMORY_KEYS) {
+      console.log(`${key}=${String(snap.effective[key])}`);
+    }
+    return;
+  }
+
+  if (sub === 'set') {
+    const globalFlag = takeFlag(restArgs, '--global');
+    const positional = globalFlag.args.filter((a) => !a.startsWith('--'));
+    const key = positional[0];
+    const rawVal = positional[1];
+    const wsArg = positional[2];
+    const usage =
+      'usage: fastpath memory set <key> <value|inherit> [ws] [--global]\n' +
+      `keys: ${MEMORY_KEYS.join(', ')}`;
+    if (!isMemoryKey(key) || rawVal === undefined) {
+      console.error(usage);
+      process.exit(1);
+    }
+    let value: number | boolean | 'inherit';
+    if (rawVal === 'inherit') value = 'inherit';
+    else if (rawVal === 'true' || rawVal === 'false') value = rawVal === 'true';
+    else {
+      const n = Number(rawVal);
+      if (!Number.isFinite(n)) {
+        console.error(usage);
+        process.exit(1);
+      }
+      value = n;
+    }
+    try {
+      if (globalFlag.set) setMemorySetting({}, key, value);
+      else {
+        const workspace = resolve(wsArg || process.env.FASTPATH_WORKSPACE || process.cwd());
+        setMemorySetting({ workspace }, key, value);
+      }
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+    // Capture toggle needs rewire to rewrite hook enabled flag
+    if (key === 'capture') {
+      if (globalFlag.set) {
+        const wired = listWiredWorkspaces();
+        if (wired.length) cmdRewire(true, process.cwd());
+        else console.log('Saved. No wired workspaces to rewire.');
+      } else {
+        const workspace = resolve(wsArg || process.env.FASTPATH_WORKSPACE || process.cwd());
+        const abs = workspaceKey(workspace);
+        if (listWiredWorkspaces().includes(abs)) cmdInstallKiro(workspace);
+        else console.log(`Saved. Run \`fastpath use ${workspace}\` to apply.`);
+      }
+      return;
+    }
+    console.log('Saved.');
+    return;
+  }
+
+  if (sub === 'wipe') {
+    const yes = takeFlag(restArgs, '--yes');
+    const kindFlag = takeFlag(yes.args, '--kind');
+    let args = kindFlag.args;
+    let kindRaw = kindFlag.set ? args[0] : undefined;
+    if (kindFlag.set) args = args.slice(1);
+    const olderFlag = takeFlag(args, '--older-than');
+    args = olderFlag.args;
+    let olderDays: number | undefined;
+    if (olderFlag.set) {
+      const raw = args[0];
+      args = args.slice(1);
+      const m = typeof raw === 'string' ? /^(\d+)d?$/i.exec(raw) : null;
+      if (!m) {
+        console.error('usage: fastpath memory wipe [--kind session|all] [--older-than Nd] [ws] --yes');
+        process.exit(1);
+      }
+      olderDays = Number(m[1]);
+    }
+    if (!yes.set) {
+      console.error('Refusing wipe without --yes');
+      process.exit(1);
+    }
+    const kind =
+      kindRaw === undefined || kindRaw === 'all'
+        ? 'all'
+        : kindRaw === 'session' ||
+            kindRaw === 'decision' ||
+            kindRaw === 'fact' ||
+            kindRaw === 'preference'
+          ? kindRaw
+          : null;
+    if (kind === null) {
+      console.error('usage: fastpath memory wipe [--kind session|all] [--older-than Nd] [ws] --yes');
+      process.exit(1);
+    }
+    const workspace = workspaceFromArgs(args);
+    applyMemoryLimits(workspace);
+    const n = wipeMemories(workspace, { kind, olderThanDays: olderDays });
+    console.log(`Wiped ${n} memories (pinned kept).`);
+    return;
+  }
+
+  if (sub === 'pin' || sub === 'unpin') {
+    const id = Number(restArgs.find((a) => /^\d+$/.test(a)));
+    if (!Number.isInteger(id)) {
+      console.error(`usage: fastpath memory ${sub} <id> [workspace]`);
+      process.exit(1);
+    }
+    const workspace = workspaceFromArgs(restArgs.filter((a) => !/^\d+$/.test(a)));
+    applyMemoryLimits(workspace);
+    const ok = sub === 'pin' ? pinMemory(workspace, id) : unpinMemory(workspace, id);
+    console.log(ok ? `${sub === 'pin' ? 'Pinned' : 'Unpinned'} #${id}` : `No memory #${id}`);
+    return;
+  }
+
   const workspace = workspaceFromArgs(restArgs.filter((a) => !/^\d+$/.test(a)));
+  applyMemoryLimits(workspace);
 
   switch (sub) {
     case 'list': {
@@ -867,9 +1021,15 @@ async function cmdMemory(args: string[]): Promise<void> {
         return;
       }
       for (const m of memories) {
+        const pin = m.tags.includes('pin') ? ' [pin]' : '';
         const paths = m.paths.length ? ` [${m.paths.join(', ')}]` : '';
-        console.log(`#${m.id} (${m.kind}, used ${m.useCount}x) ${m.text}${paths}`);
+        console.log(`#${m.id} (${m.kind}, used ${m.useCount}x)${pin} ${m.text}${paths}`);
       }
+      return;
+    }
+    case 'stats': {
+      const s = memoryStats(workspace);
+      console.log(JSON.stringify(s, null, 2));
       return;
     }
     case 'forget': {
@@ -890,9 +1050,32 @@ async function cmdMemory(args: string[]): Promise<void> {
       return;
     }
     default:
-      console.error('usage: fastpath memory list|forget <id>|distill [workspace]');
+      console.error(
+        'usage: fastpath memory list|stats|forget <id>|pin <id>|unpin <id>|distill|settings|set <key> <value>|wipe [workspace]',
+      );
       process.exit(1);
   }
+}
+
+function applyModesChange(opts: {
+  global?: boolean;
+  workspace?: string;
+  noApply?: boolean;
+}): void {
+  if (opts.noApply) {
+    console.log('Saved (no apply).');
+    return;
+  }
+  if (opts.global) {
+    const wired = listWiredWorkspaces();
+    if (wired.length) cmdRewire(true, process.cwd());
+    else console.log('Saved global default. No wired workspaces to rewire.');
+    return;
+  }
+  const workspace = resolve(opts.workspace || process.env.FASTPATH_WORKSPACE || process.cwd());
+  const abs = workspaceKey(workspace);
+  if (listWiredWorkspaces().includes(abs)) cmdInstallKiro(workspace);
+  else console.log(`Saved. Run \`fastpath use ${workspace}\` to apply.`);
 }
 
 function modesSnapshot(workspace: string) {
@@ -904,6 +1087,9 @@ function modesSnapshot(workspace: string) {
     workspace: r.workspace,
     global: r.global,
     wired: listWiredWorkspaces().includes(abs),
+    presets: Object.fromEntries(
+      Object.entries(MODE_PRESETS).map(([k, v]) => [k, { caveman: v.caveman, ponytail: v.ponytail, label: v.label }]),
+    ),
   };
 }
 
@@ -938,28 +1124,69 @@ function cmdModes(args: string[]): void {
       process.exit(1);
     }
 
-    if (noApply.set) {
-      console.log('Saved (no apply).');
-      return;
-    }
+    applyModesChange({
+      global: globalFlag.set,
+      workspace: wsArg,
+      noApply: noApply.set,
+    });
+    return;
+  }
 
-    if (globalFlag.set) {
-      const wired = listWiredWorkspaces();
-      if (wired.length) {
-        cmdRewire(true, process.cwd());
-      } else {
-        console.log('Saved global default. No wired workspaces to rewire.');
+  if (sub === 'reset') {
+    const globalFlag = takeFlag(rest, '--global');
+    const noApply = takeFlag(globalFlag.args, '--no-apply');
+    const positional = noApply.args.filter((a) => !a.startsWith('--'));
+    const wsArg = positional[0];
+    try {
+      if (globalFlag.set) resetModes({ global: true });
+      if (!globalFlag.set || wsArg) {
+        const workspace = resolve(wsArg || process.env.FASTPATH_WORKSPACE || process.cwd());
+        resetModes({ workspace });
       }
-      return;
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
     }
+    applyModesChange({
+      global: globalFlag.set && !wsArg,
+      workspace: wsArg || process.env.FASTPATH_WORKSPACE || process.cwd(),
+      noApply: noApply.set,
+    });
+    return;
+  }
 
-    const workspace = resolve(wsArg || process.env.FASTPATH_WORKSPACE || process.cwd());
-    const abs = workspaceKey(workspace);
-    if (listWiredWorkspaces().includes(abs)) {
-      cmdInstallKiro(workspace);
-    } else {
-      console.log(`Saved. Run \`fastpath use ${workspace}\` to apply.`);
+  if (sub === 'preset') {
+    const globalFlag = takeFlag(rest, '--global');
+    const noApply = takeFlag(globalFlag.args, '--no-apply');
+    const positional = noApply.args.filter((a) => !a.startsWith('--'));
+    const name = positional[0];
+    const wsArg = positional[1];
+    const preset = name ? MODE_PRESETS[name] : undefined;
+    if (!preset) {
+      console.error(
+        `usage: fastpath modes preset <${Object.keys(MODE_PRESETS).join('|')}> [ws] [--global] [--no-apply]`,
+      );
+      process.exit(1);
     }
+    try {
+      if (globalFlag.set) {
+        setModeLevel({}, 'caveman', preset.caveman);
+        setModeLevel({}, 'ponytail', preset.ponytail);
+      } else {
+        const workspace = resolve(wsArg || process.env.FASTPATH_WORKSPACE || process.cwd());
+        setModeLevel({ workspace }, 'caveman', preset.caveman);
+        setModeLevel({ workspace }, 'ponytail', preset.ponytail);
+      }
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+    console.log(`Preset ${name}: ${preset.label}`);
+    applyModesChange({
+      global: globalFlag.set,
+      workspace: wsArg,
+      noApply: noApply.set,
+    });
     return;
   }
 

@@ -1,14 +1,51 @@
-export type ScreenId = 'setup' | 'repos' | 'health' | 'modes' | 'signal';
+export type ScreenId = 'setup' | 'repos' | 'health' | 'modes' | 'memory' | 'signal';
 
 export type ModeLevel = 'off' | 'lite' | 'full' | 'ultra';
 export type ModeKey = 'caveman' | 'ponytail';
 export type ModeSettings = Record<ModeKey, ModeLevel>;
+export type EffortLevel = 'low' | 'medium' | 'high';
 
 export interface ModesPayload {
   levels: ModeLevel[];
   effective: ModeSettings;
   workspace: Partial<ModeSettings>;
   global: Partial<ModeSettings>;
+  wired: boolean;
+  presets?: Record<
+    string,
+    { caveman: ModeLevel; ponytail: ModeLevel; label: string }
+  >;
+}
+
+export interface PrefsPayload {
+  effective: {
+    inject: { maxHits: number; contextChunks: number; tokenBudget: number };
+    effortReminders: { scout: EffortLevel; architect: EffortLevel };
+  };
+  workspace: Record<string, unknown>;
+  global: Record<string, unknown>;
+  effortLevels: EffortLevel[];
+  defaults: PrefsPayload['effective'];
+  wired: boolean;
+}
+
+export interface MemoryPayload {
+  effective: {
+    sessionMax: number;
+    pruneAfterDays: number;
+    pruneScoreFloor: number;
+    recencyHalfLifeDays: number;
+    autoPrune: boolean;
+    recallTopK: number;
+    sessionInjectCount: number;
+    sessionInjectChars: number;
+    capture: boolean;
+  };
+  workspace: Record<string, unknown>;
+  global: Record<string, unknown>;
+  keys: string[];
+  defaults: MemoryPayload['effective'];
+  stats: { total: number; byKind: Record<string, number>; pinned: number };
   wired: boolean;
 }
 

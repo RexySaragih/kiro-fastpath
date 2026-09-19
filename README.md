@@ -181,7 +181,9 @@ bash scripts/install-target.sh /path/to/your/repo
 
 Kiro binds effort per session/model, not per agent — set `/effort` when you switch agents.
 
-**Caveman / ponytail levels** (default `full` for both): agent system prompt + `.kiro/steering/{caveman,ponytail}.md` + Scout/Architect `resources`. Persist with `fastpath modes set caveman lite [ws]` (or `--global`), or the **Modes** screen in `fastpath ui`. Slash `/caveman` / `/ponytail` still refresh mid-session. Soften with `lite`, escalate with `ultra`, or `off` to uninstall the steering stanza.
+**Caveman / ponytail levels** (default `full` for both): agent system prompt + `.kiro/steering/{caveman,ponytail}.md` + Scout/Architect `resources`. Persist with `fastpath modes set caveman lite [ws]` (or `--global`), presets (`quiet` / `balanced` / `strict`), or the **Modes** screen in `fastpath ui`. Slash `/caveman` / `/ponytail` still refresh mid-session. Soften with `lite`, escalate with `ultra`, or `off` to uninstall the steering stanza.
+
+**Inject pack + effort reminders** live under prefs (Modes UI / `~/.fastpath/config.json`). Effort text in Scout/Architect is reminder-only — run `/effort` in the session. **Memory** lifecycle (caps, prune, capture, wipe, pin) is the separate **Memory** rail screen / `fastpath memory settings|set|wipe|pin`.
 
 Do not add CLI-only fields (`allowedTools`, `includeMcpJson`) to agent markdown — Kiro IDE will hide the agent. `toolsSettings.subagent` is allowed (Architect trusts Scout).
 
@@ -202,7 +204,8 @@ fastpath repair-native                    # after Node upgrade
 fastpath eval [--office|--golden]         # smoke, office goldens, or graded metrics
 fastpath bench [workspace] [--tasks f.json]  # tokens injected vs baseline discovery
 fastpath home|version|metrics [--summary|--tokens]
-fastpath memory list|forget <id>|distill [workspace]
+fastpath memory list|stats|forget|pin|unpin|distill|settings|set|wipe [workspace]
+fastpath modes [ws] [--json] | modes set|reset|preset <quiet|balanced|strict> …
 fastpath viz [workspace] [--no-open] [--out file.html]   # HTML report: this project + all FastPath
 fastpath ui [workspace] [--port N] [--no-open]           # localhost control panel
 ```

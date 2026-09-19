@@ -455,6 +455,90 @@ test('modes API get/put/validate', async () => {
     assert.deepEqual(pg.workspace, {});
 
     assert.equal(existsSync(join(ws, '.kiro')), false);
+
+    const getPrefs = await httpCall({
+      port: handle.port,
+      path: `/api/prefs?${qs}`,
+      headers: { Host: loopbackHost, ...auth },
+    });
+    assert.equal(getPrefs.status, 200, getPrefs.body);
+    const prefs0 = JSON.parse(getPrefs.body);
+    assert.equal(prefs0.effective.inject.maxHits, 4);
+    assert.equal(prefs0.effective.effortReminders.scout, 'low');
+
+    const putPrefs = await httpCall({
+      port: handle.port,
+      path: '/api/prefs',
+      method: 'PUT',
+      headers: {
+        Host: loopbackHost,
+        ...auth,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        workspace: ws,
+        inject: { maxHits: 6 },
+        effortReminders: { scout: 'high' },
+      }),
+    });
+    assert.equal(putPrefs.status, 200, putPrefs.body);
+    const prefs1 = JSON.parse(putPrefs.body);
+    assert.equal(prefs1.effective.inject.maxHits, 6);
+    assert.equal(prefs1.effective.effortReminders.scout, 'high');
+
+    const getMem = await httpCall({
+      port: handle.port,
+      path: `/api/memory?${qs}`,
+      headers: { Host: loopbackHost, ...auth },
+    });
+    assert.equal(getMem.status, 200, getMem.body);
+    const mem0 = JSON.parse(getMem.body);
+    assert.equal(mem0.effective.sessionMax, 50);
+    assert.equal(mem0.effective.capture, true);
+
+    const putMem = await httpCall({
+      port: handle.port,
+      path: '/api/memory',
+      method: 'PUT',
+      headers: {
+        Host: loopbackHost,
+        ...auth,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ workspace: ws, sessionMax: 12, capture: false }),
+    });
+    assert.equal(putMem.status, 200, putMem.body);
+    const mem1 = JSON.parse(putMem.body);
+    assert.equal(mem1.effective.sessionMax, 12);
+    assert.equal(mem1.effective.capture, false);
+
+    const wipeNo = await httpCall({
+      port: handle.port,
+      path: '/api/memory/wipe',
+      method: 'POST',
+      headers: {
+        Host: loopbackHost,
+        ...auth,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ workspace: ws, kind: 'session' }),
+    });
+    assert.equal(wipeNo.status, 400);
+    assert.match(wipeNo.body, /yes must be true/);
+
+    const wipeOk = await httpCall({
+      port: handle.port,
+      path: '/api/memory/wipe',
+      method: 'POST',
+      headers: {
+        Host: loopbackHost,
+        ...auth,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ workspace: ws, kind: 'session', yes: true }),
+    });
+    assert.equal(wipeOk.status, 200, wipeOk.body);
+    assert.equal(JSON.parse(wipeOk.body).wiped, 0);
   } finally {
     await handle.close();
     if (prevUser === undefined) delete process.env.FASTPATH_USER_DIR;

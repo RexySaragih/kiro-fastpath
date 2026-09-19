@@ -59,8 +59,41 @@ export interface SaveMemoryInput {
 const DEFAULT_RECALL_TOP_K = 3;
 const MAX_RECALL_TOP_K = 10;
 const MAX_MEMORY_TEXT_CHARS = 2_000;
-/** Session memories are rolling context, not durable knowledge — cap them. */
-const MAX_SESSION_MEMORIES = 50;
+
+/** Runtime-tunable memory lifecycle caps (CLI/MCP call setMemoryLimits). */
+export interface MemoryLimitsConfig {
+  sessionMax: number;
+  pruneAfterDays: number;
+  pruneScoreFloor: number;
+  recencyHalfLifeDays: number;
+  autoPrune: boolean;
+  recallTopK: number;
+}
+
+export const DEFAULT_MEMORY_LIMITS: MemoryLimitsConfig = {
+  sessionMax: 50,
+  pruneAfterDays: 60,
+  pruneScoreFloor: 0.02,
+  recencyHalfLifeDays: 30,
+  autoPrune: true,
+  recallTopK: DEFAULT_RECALL_TOP_K,
+};
+
+let memoryLimits: MemoryLimitsConfig = { ...DEFAULT_MEMORY_LIMITS };
+
+export function getMemoryLimits(): MemoryLimitsConfig {
+  return { ...memoryLimits };
+}
+
+export function setMemoryLimits(partial: Partial<MemoryLimitsConfig>): void {
+  memoryLimits = { ...memoryLimits, ...partial };
+}
+
+export function resetMemoryLimitsForTests(): void {
+  memoryLimits = { ...DEFAULT_MEMORY_LIMITS };
+}
+
+export const PIN_TAG = 'pin';
 
 interface MemoryRow {
   id: number;
@@ -151,10 +184,6 @@ function escapeFtsQuery(query: string): string {
 const NEAR_DUPLICATE_COSINE = 0.9;
 /** Recall scoring weights: semantic relevance, recency, proven usefulness. */
 const SCORE_WEIGHTS = { semantic: 0.6, recency: 0.25, useCount: 0.15 } as const;
-const RECENCY_HALF_LIFE_DAYS = 30;
-/** Memories scoring below this after decay are dropped on write. */
-const PRUNE_SCORE_FLOOR = 0.02;
-const PRUNE_MIN_AGE_DAYS = 60;
 /** Memories whose paths overlap the current work get this multiplier. */
 const SCOPE_BOOST = 1.5;
 /** Off-scope memories must clear this to be injected at all. */
@@ -164,7 +193,7 @@ function recencyScore(iso: string | null): number {
   if (!iso) return 0;
   const ageDays = (Date.now() - Date.parse(iso)) / 86_400_000;
   if (!Number.isFinite(ageDays)) return 0;
-  return Math.pow(0.5, Math.max(0, ageDays) / RECENCY_HALF_LIFE_DAYS);
+  return Math.pow(0.5, Math.max(0, ageDays) / memoryLimits.recencyHalfLifeDays);
 }
 
 function findNearDuplicate(
@@ -196,24 +225,28 @@ function findNearDuplicate(
 
 /** Drop stale, unused, low-value memories. Cheap, runs on write. */
 function pruneDecayedMemories(db: Database.Database): void {
+  if (!memoryLimits.autoPrune) return;
   const rows = db
     .prepare(
-      `SELECT id, created_at, last_used_at, use_count FROM memories WHERE kind != 'session'`,
+      `SELECT id, created_at, last_used_at, use_count, tags FROM memories WHERE kind != 'session'`,
     )
     .all() as Array<{
     id: number;
     created_at: string;
     last_used_at: string | null;
     use_count: number;
+    tags: string;
   }>;
   const doomed: number[] = [];
   for (const row of rows) {
+    const tags = row.tags ? row.tags.split(',').filter(Boolean) : [];
+    if (tags.includes(PIN_TAG)) continue;
     const ageDays = (Date.now() - Date.parse(row.created_at)) / 86_400_000;
-    if (!Number.isFinite(ageDays) || ageDays < PRUNE_MIN_AGE_DAYS) continue;
+    if (!Number.isFinite(ageDays) || ageDays < memoryLimits.pruneAfterDays) continue;
     const score =
       SCORE_WEIGHTS.recency * recencyScore(row.last_used_at ?? row.created_at) +
       SCORE_WEIGHTS.useCount * Math.min(1, row.use_count / 5);
-    if (score < PRUNE_SCORE_FLOOR) doomed.push(row.id);
+    if (score < memoryLimits.pruneScoreFloor) doomed.push(row.id);
   }
   for (const id of doomed) {
     db.prepare(`DELETE FROM memories WHERE id = ?`).run(id);
@@ -223,11 +256,12 @@ function pruneDecayedMemories(db: Database.Database): void {
 }
 
 function pruneSessionMemories(db: Database.Database): void {
+  if (!memoryLimits.autoPrune) return;
   db.prepare(
     `DELETE FROM memories WHERE kind = 'session' AND id NOT IN (
        SELECT id FROM memories WHERE kind = 'session' ORDER BY id DESC LIMIT ?
      )`,
-  ).run(MAX_SESSION_MEMORIES);
+  ).run(memoryLimits.sessionMax);
   db.prepare(
     `DELETE FROM memories_fts WHERE rowid NOT IN (SELECT id FROM memories)`,
   ).run();
@@ -314,7 +348,7 @@ export async function recallMemories(
 ): Promise<MemoryEntry[]> {
   const options: RecallOptions =
     typeof topKOrOptions === 'number' ? { topK: topKOrOptions } : topKOrOptions;
-  const k = Math.max(1, Math.min(options.topK ?? DEFAULT_RECALL_TOP_K, MAX_RECALL_TOP_K));
+  const k = Math.max(1, Math.min(options.topK ?? memoryLimits.recallTopK, MAX_RECALL_TOP_K));
   const scope = new Set(options.scopePaths ?? []);
   const qVec = await embedQuery(query);
 
@@ -403,7 +437,93 @@ export function forgetMemory(workspace: string, id: number): boolean {
   return withMemoryDb(workspace, (db) => {
     const changed = db.prepare(`DELETE FROM memories WHERE id = ?`).run(id).changes;
     db.prepare(`DELETE FROM memories_fts WHERE rowid = ?`).run(id);
+    clearMemoryLsh(db, id);
     return changed > 0;
+  });
+}
+
+export function pinMemory(workspace: string, id: number): boolean {
+  return withMemoryDb(workspace, (db) => {
+    const row = db.prepare(`SELECT * FROM memories WHERE id = ?`).get(id) as MemoryRow | undefined;
+    if (!row) return false;
+    const tags = row.tags ? row.tags.split(',').filter(Boolean) : [];
+    if (tags.includes(PIN_TAG)) return true;
+    tags.push(PIN_TAG);
+    const joined = tags.join(',');
+    db.prepare(`UPDATE memories SET tags = ? WHERE id = ?`).run(joined, id);
+    db.prepare(`UPDATE memories_fts SET tags = ? WHERE rowid = ?`).run(joined, id);
+    return true;
+  });
+}
+
+export function unpinMemory(workspace: string, id: number): boolean {
+  return withMemoryDb(workspace, (db) => {
+    const row = db.prepare(`SELECT * FROM memories WHERE id = ?`).get(id) as MemoryRow | undefined;
+    if (!row) return false;
+    const tags = (row.tags ? row.tags.split(',').filter(Boolean) : []).filter((t) => t !== PIN_TAG);
+    const joined = tags.join(',');
+    db.prepare(`UPDATE memories SET tags = ? WHERE id = ?`).run(joined, id);
+    db.prepare(`UPDATE memories_fts SET tags = ? WHERE rowid = ?`).run(joined, id);
+    return true;
+  });
+}
+
+export interface WipeMemoriesOptions {
+  kind?: MemoryKind | 'all';
+  /** ISO age threshold: delete if created_at older than this many days. */
+  olderThanDays?: number;
+}
+
+/** Destructive wipe. Returns number of rows deleted. */
+export function wipeMemories(workspace: string, opts: WipeMemoriesOptions = {}): number {
+  return withMemoryDb(workspace, (db) => {
+    const kind = opts.kind ?? 'all';
+    const older = opts.olderThanDays;
+    let rows = db.prepare(`SELECT id, kind, created_at, tags FROM memories`).all() as Array<{
+      id: number;
+      kind: string;
+      created_at: string;
+      tags: string;
+    }>;
+    if (kind !== 'all') rows = rows.filter((r) => r.kind === kind);
+    if (typeof older === 'number' && older > 0) {
+      const cutoff = Date.now() - older * 86_400_000;
+      rows = rows.filter((r) => Date.parse(r.created_at) < cutoff);
+    }
+    // Never wipe pinned unless kind=all and no olderThan (explicit full wipe still skips pins for safety)
+    rows = rows.filter((r) => {
+      const tags = r.tags ? r.tags.split(',').filter(Boolean) : [];
+      return !tags.includes(PIN_TAG);
+    });
+    let n = 0;
+    for (const r of rows) {
+      db.prepare(`DELETE FROM memories WHERE id = ?`).run(r.id);
+      db.prepare(`DELETE FROM memories_fts WHERE rowid = ?`).run(r.id);
+      clearMemoryLsh(db, r.id);
+      n += 1;
+    }
+    return n;
+  });
+}
+
+/** Kind counts for UI summary. */
+export function memoryStats(workspace: string): {
+  total: number;
+  byKind: Record<string, number>;
+  pinned: number;
+} {
+  return withMemoryDb(workspace, (db) => {
+    const rows = db.prepare(`SELECT kind, tags FROM memories`).all() as Array<{
+      kind: string;
+      tags: string;
+    }>;
+    const byKind: Record<string, number> = {};
+    let pinned = 0;
+    for (const r of rows) {
+      byKind[r.kind] = (byKind[r.kind] ?? 0) + 1;
+      if ((r.tags ? r.tags.split(',') : []).includes(PIN_TAG)) pinned += 1;
+    }
+    return { total: rows.length, byKind, pinned };
   });
 }
 

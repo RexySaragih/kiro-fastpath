@@ -10,7 +10,15 @@ import {
   statSync,
 } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
-import { getIndexStats, minilmWeightsPresent, modelCacheDir } from '@fastpath/core';
+import {
+  getIndexStats,
+  memoryStats,
+  minilmWeightsPresent,
+  modelCacheDir,
+  pinMemory,
+  unpinMemory,
+  wipeMemories,
+} from '@fastpath/core';
 import {
   defaultFastpathHome,
   listWiredWorkspaces,
@@ -41,6 +49,23 @@ import {
   type ModeKey,
   type ModeLevel,
 } from './modes.js';
+import {
+  DEFAULT_PREFS,
+  EFFORT_LEVELS,
+  isEffortLevel,
+  MODE_PRESETS,
+  resolvePrefs,
+  setPrefs,
+  type PrefsSettings,
+} from './prefs.js';
+import {
+  applyMemoryLimits,
+  DEFAULT_MEMORY,
+  isMemoryKey,
+  MEMORY_KEYS,
+  resolveMemory,
+  setMemoryPatch,
+} from './memory-settings.js';
 import { buildVizPageData } from './viz.js';
 
 const DEFAULT_PORT = 8787;
@@ -175,6 +200,12 @@ function workspaceFrom(url: URL, fallback: string): string {
 }
 
 function modesPayload(workspace?: string) {
+  const presets = Object.fromEntries(
+    Object.entries(MODE_PRESETS).map(([k, v]) => [
+      k,
+      { caveman: v.caveman, ponytail: v.ponytail, label: v.label },
+    ]),
+  );
   if (!workspace) {
     const r = resolveModes(process.cwd());
     return {
@@ -183,6 +214,7 @@ function modesPayload(workspace?: string) {
       workspace: {},
       global: r.global,
       wired: false,
+      presets,
     };
   }
   const abs = workspaceKey(workspace);
@@ -193,6 +225,41 @@ function modesPayload(workspace?: string) {
     workspace: r.workspace,
     global: r.global,
     wired: listWiredWorkspaces().includes(abs),
+    presets,
+  };
+}
+
+function prefsPayload(workspace?: string) {
+  const abs = workspace ? workspaceKey(workspace) : workspaceKey(process.cwd());
+  const r = resolvePrefs(abs);
+  return {
+    effective: r.effective,
+    workspace: r.workspace,
+    global: r.global,
+    effortLevels: [...EFFORT_LEVELS],
+    defaults: DEFAULT_PREFS,
+    wired: workspace ? listWiredWorkspaces().includes(abs) : false,
+  };
+}
+
+function memoryPayload(workspace?: string) {
+  const abs = workspace ? workspaceKey(workspace) : workspaceKey(process.cwd());
+  const r = resolveMemory(abs);
+  applyMemoryLimits(abs);
+  let stats = { total: 0, byKind: {} as Record<string, number>, pinned: 0 };
+  try {
+    stats = memoryStats(abs);
+  } catch {
+    /* no index yet */
+  }
+  return {
+    effective: r.effective,
+    workspace: r.workspace,
+    global: r.global,
+    keys: [...MEMORY_KEYS],
+    defaults: DEFAULT_MEMORY,
+    stats,
+    wired: workspace ? listWiredWorkspaces().includes(abs) : false,
   };
 }
 
@@ -309,6 +376,251 @@ async function handleApi(
       }
     }
     send(res, 200, modesPayload(workspace));
+    return;
+  }
+
+  if (method === 'GET' && path === '/api/prefs') {
+    const workspace = workspaceFrom(url, defaultWorkspace);
+    send(res, 200, prefsPayload(workspace));
+    return;
+  }
+
+  if (method === 'PUT' && path === '/api/prefs') {
+    let body: unknown;
+    try {
+      body = await readJson(req);
+    } catch {
+      send(res, 400, { error: 'invalid json' });
+      return;
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      send(res, 400, { error: 'invalid json' });
+      return;
+    }
+    const obj = body as Record<string, unknown>;
+    let workspace: string | undefined;
+    if (obj.workspace !== undefined) {
+      if (typeof obj.workspace !== 'string') {
+        send(res, 400, { error: 'workspace must be an absolute path' });
+        return;
+      }
+      try {
+        workspace = requireExistingAbs('workspace', obj.workspace);
+      } catch (err) {
+        if (err instanceof JobValidationError) {
+          send(res, err.status, { error: err.message });
+          return;
+        }
+        send(res, 400, { error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+    }
+    const patch: {
+      inject?: PrefsSettings['inject'];
+      effortReminders?: PrefsSettings['effortReminders'];
+    } = {};
+    if (obj.inject !== undefined) {
+      if (!obj.inject || typeof obj.inject !== 'object' || Array.isArray(obj.inject)) {
+        send(res, 400, { error: 'invalid inject' });
+        return;
+      }
+      const inj = obj.inject as Record<string, unknown>;
+      const inject: Partial<PrefsSettings['inject']> = {};
+      for (const k of ['maxHits', 'contextChunks', 'tokenBudget'] as const) {
+        if (inj[k] === undefined) continue;
+        const n = Number(inj[k]);
+        if (!Number.isFinite(n) || n <= 0) {
+          send(res, 400, { error: `invalid inject.${k}` });
+          return;
+        }
+        inject[k] = Math.floor(n);
+      }
+      patch.inject = { ...DEFAULT_PREFS.inject, ...inject };
+    }
+    if (obj.effortReminders !== undefined) {
+      if (
+        !obj.effortReminders ||
+        typeof obj.effortReminders !== 'object' ||
+        Array.isArray(obj.effortReminders)
+      ) {
+        send(res, 400, { error: 'invalid effortReminders' });
+        return;
+      }
+      const er = obj.effortReminders as Record<string, unknown>;
+      const effortReminders: Partial<PrefsSettings['effortReminders']> = {};
+      for (const k of ['scout', 'architect'] as const) {
+        if (er[k] === undefined) continue;
+        if (!isEffortLevel(er[k])) {
+          send(res, 400, { error: `invalid effortReminders.${k}` });
+          return;
+        }
+        effortReminders[k] = er[k];
+      }
+      patch.effortReminders = {
+        ...DEFAULT_PREFS.effortReminders,
+        ...effortReminders,
+      };
+    }
+    try {
+      setPrefs(workspace ? { workspace } : {}, patch);
+    } catch (err) {
+      send(res, 400, { error: err instanceof Error ? err.message : String(err) });
+      return;
+    }
+    send(res, 200, prefsPayload(workspace));
+    return;
+  }
+
+  if (method === 'GET' && path === '/api/memory') {
+    const workspace = workspaceFrom(url, defaultWorkspace);
+    send(res, 200, memoryPayload(workspace));
+    return;
+  }
+
+  if (method === 'PUT' && path === '/api/memory') {
+    let body: unknown;
+    try {
+      body = await readJson(req);
+    } catch {
+      send(res, 400, { error: 'invalid json' });
+      return;
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      send(res, 400, { error: 'invalid json' });
+      return;
+    }
+    const obj = body as Record<string, unknown>;
+    let workspace: string | undefined;
+    if (obj.workspace !== undefined) {
+      if (typeof obj.workspace !== 'string') {
+        send(res, 400, { error: 'workspace must be an absolute path' });
+        return;
+      }
+      try {
+        workspace = requireExistingAbs('workspace', obj.workspace);
+      } catch (err) {
+        if (err instanceof JobValidationError) {
+          send(res, err.status, { error: err.message });
+          return;
+        }
+        send(res, 400, { error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+    }
+    const scopeWs = workspace ?? defaultWorkspace;
+    applyMemoryLimits(scopeWs);
+
+    if (obj.pin !== undefined) {
+      const id = Number(obj.pin);
+      if (!Number.isInteger(id)) {
+        send(res, 400, { error: 'pin must be integer id' });
+        return;
+      }
+      pinMemory(scopeWs, id);
+      send(res, 200, memoryPayload(scopeWs));
+      return;
+    }
+    if (obj.unpin !== undefined) {
+      const id = Number(obj.unpin);
+      if (!Number.isInteger(id)) {
+        send(res, 400, { error: 'unpin must be integer id' });
+        return;
+      }
+      unpinMemory(scopeWs, id);
+      send(res, 200, memoryPayload(scopeWs));
+      return;
+    }
+
+    const patch: Record<string, number | boolean> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (key === 'workspace') continue;
+      if (!isMemoryKey(key)) {
+        send(res, 400, { error: `unknown key: ${key}` });
+        return;
+      }
+      if (key === 'autoPrune' || key === 'capture') {
+        if (typeof value !== 'boolean') {
+          send(res, 400, { error: `${key} must be boolean` });
+          return;
+        }
+        patch[key] = value;
+      } else {
+        const n = Number(value);
+        if (!Number.isFinite(n) || n <= 0) {
+          send(res, 400, { error: `invalid ${key}` });
+          return;
+        }
+        patch[key] = key === 'pruneScoreFloor' ? n : Math.floor(n);
+      }
+    }
+    try {
+      setMemoryPatch(workspace ? { workspace } : {}, patch);
+    } catch (err) {
+      send(res, 400, { error: err instanceof Error ? err.message : String(err) });
+      return;
+    }
+    send(res, 200, memoryPayload(workspace ?? scopeWs));
+    return;
+  }
+
+  if (method === 'POST' && path === '/api/memory/wipe') {
+    let body: unknown;
+    try {
+      body = await readJson(req);
+    } catch {
+      send(res, 400, { error: 'invalid json' });
+      return;
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      send(res, 400, { error: 'invalid json' });
+      return;
+    }
+    const obj = body as Record<string, unknown>;
+    if (obj.yes !== true) {
+      send(res, 400, { error: 'yes must be true' });
+      return;
+    }
+    let workspace: string;
+    if (typeof obj.workspace !== 'string') {
+      send(res, 400, { error: 'workspace required' });
+      return;
+    }
+    try {
+      workspace = requireExistingAbs('workspace', obj.workspace);
+    } catch (err) {
+      if (err instanceof JobValidationError) {
+        send(res, err.status, { error: err.message });
+        return;
+      }
+      send(res, 400, { error: err instanceof Error ? err.message : String(err) });
+      return;
+    }
+    const kindRaw = obj.kind;
+    const kind =
+      kindRaw === undefined || kindRaw === 'all'
+        ? 'all'
+        : kindRaw === 'session' ||
+            kindRaw === 'decision' ||
+            kindRaw === 'fact' ||
+            kindRaw === 'preference'
+          ? kindRaw
+          : null;
+    if (kind === null) {
+      send(res, 400, { error: 'invalid kind' });
+      return;
+    }
+    let olderThanDays: number | undefined;
+    if (obj.olderThanDays !== undefined) {
+      const n = Number(obj.olderThanDays);
+      if (!Number.isFinite(n) || n <= 0) {
+        send(res, 400, { error: 'invalid olderThanDays' });
+        return;
+      }
+      olderThanDays = Math.floor(n);
+    }
+    applyMemoryLimits(workspace);
+    const wiped = wipeMemories(workspace, { kind, olderThanDays });
+    send(res, 200, { wiped, ...memoryPayload(workspace) });
     return;
   }
 

@@ -519,8 +519,10 @@ export async function contextForTask(
   workspace: string,
   task: string,
   maxChunks?: number,
+  tokenBudget: number = CONTEXT_TOKEN_BUDGET,
 ): Promise<SearchHit[]> {
   const limit = clampTopK(maxChunks, DEFAULT_MAX_CHUNKS, HARD_MAX_CHUNKS);
+  const budget = Math.max(200, Math.floor(tokenBudget));
   const signals = extractQuerySignals(task);
   const primary = signals.length ? signals.join(' ') : task;
   let hits = await searchIndex(workspace, primary, {
@@ -542,7 +544,7 @@ export async function contextForTask(
   let spent = 0;
   for (const hit of mergePerFile(hits)) {
     const cost = estimateTokens(`${hit.path}${hit.symbol ?? ''}${hit.snippet ?? ''}`);
-    if (budgeted.length && spent + cost > CONTEXT_TOKEN_BUDGET) break;
+    if (budgeted.length && spent + cost > budget) break;
     budgeted.push(hit);
     spent += cost;
   }

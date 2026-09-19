@@ -1,4 +1,5 @@
 import {
+  Brain,
   FirstAid,
   FolderSimple,
   GearSix,
@@ -14,6 +15,7 @@ const ITEMS: Array<{ id: ScreenId; label: string; Icon: typeof GearSix }> = [
   { id: 'repos', label: 'Repos', Icon: FolderSimple },
   { id: 'health', label: 'Health', Icon: FirstAid },
   { id: 'modes', label: 'Modes', Icon: SlidersHorizontal },
+  { id: 'memory', label: 'Memory', Icon: Brain },
   { id: 'signal', label: 'Signal', Icon: Pulse },
 ];
 

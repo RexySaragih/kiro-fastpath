@@ -1,4 +1,4 @@
-import type { ActiveJob, DoctorResult, IndexStats, JobSpec, ModeLevel, ModesPayload, StatePayload, VizPageData } from './types';
+import type { ActiveJob, DoctorResult, IndexStats, JobSpec, MemoryPayload, ModeLevel, ModesPayload, PrefsPayload, StatePayload, VizPageData } from './types';
 
 const TOKEN_KEY = 'fastpath.ui.token';
 
@@ -79,6 +79,35 @@ export function putModes(body: {
   ponytail?: ModeLevel | 'inherit';
 }): Promise<ModesPayload> {
   return api('/api/modes', { method: 'PUT', body: JSON.stringify(body) });
+}
+
+export function fetchPrefs(workspace: string): Promise<PrefsPayload> {
+  return api(`/api/prefs?workspace=${encodeURIComponent(workspace)}`);
+}
+
+export function putPrefs(body: {
+  workspace?: string;
+  inject?: Partial<{ maxHits: number; contextChunks: number; tokenBudget: number }>;
+  effortReminders?: Partial<{ scout: string; architect: string }>;
+}): Promise<PrefsPayload> {
+  return api('/api/prefs', { method: 'PUT', body: JSON.stringify(body) });
+}
+
+export function fetchMemory(workspace: string): Promise<MemoryPayload> {
+  return api(`/api/memory?workspace=${encodeURIComponent(workspace)}`);
+}
+
+export function putMemory(body: Record<string, unknown>): Promise<MemoryPayload> {
+  return api('/api/memory', { method: 'PUT', body: JSON.stringify(body) });
+}
+
+export function wipeMemory(body: {
+  workspace: string;
+  yes: true;
+  kind?: string;
+  olderThanDays?: number;
+}): Promise<MemoryPayload & { wiped: number }> {
+  return api('/api/memory/wipe', { method: 'POST', body: JSON.stringify(body) });
 }
 
 export async function postJob(spec: JobSpec): Promise<{ jobId: string }> {

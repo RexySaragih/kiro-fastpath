@@ -47,6 +47,8 @@ import {
   routingAdvice,
   type PromptIntent,
 } from './routing.js';
+import { resolvePrefs, type InjectPrefs } from './prefs.js';
+import { applyMemoryLimits } from './memory-settings.js';
 
 /**
  * `FASTPATH_INJECT=off` disables retrieval injection while still recording the
@@ -63,10 +65,11 @@ async function recallRelevantMemories(
   workspace: string,
   prompt: string,
   scopePaths: string[] = [],
+  topK: number = InjectLimits.MEMORY_TOP_K,
 ): Promise<MemoryEntry[]> {
   const raced = await withTimeout(
     recallMemories(workspace, prompt, {
-      topK: InjectLimits.MEMORY_TOP_K,
+      topK,
       scopePaths,
     }),
     MEMORY_RECALL_BUDGET_MS,
@@ -145,11 +148,15 @@ function formatMemoryBlock(memories: MemoryEntry[]): string[] {
 }
 
 /** Fallback when prompt cannot be extracted — memories only, labeled recency. */
-function noPromptFallbackBody(workspace: string, reason: string): string {
+function noPromptFallbackBody(
+  workspace: string,
+  reason: string,
+  memoryTopK: number = InjectLimits.MEMORY_TOP_K,
+): string {
   const pack = recencyPackLines(workspace);
   let memories: MemoryEntry[] = [];
   try {
-    memories = listMemories(workspace, InjectLimits.MEMORY_TOP_K);
+    memories = listMemories(workspace, memoryTopK);
   } catch {
     /* memories are optional */
   }
@@ -163,9 +170,10 @@ function noPromptFallbackBody(workspace: string, reason: string): string {
 async function emitNonCodeInject(
   workspace: string,
   prompt: string,
+  memoryTopK: number = InjectLimits.MEMORY_TOP_K,
 ): Promise<{ body: string; hits: number }> {
   const stats = getIndexStats(workspace);
-  const memories = await recallRelevantMemories(workspace, prompt);
+  const memories = await recallRelevantMemories(workspace, prompt, [], memoryTopK);
   const lines = [
     stats.files
       ? `## FastPath (${stats.files} files, ${stats.symbols} symbols)`
@@ -177,11 +185,11 @@ async function emitNonCodeInject(
   return { body: `${lines.join('\n')}\n`, hits: 0 };
 }
 
-function chunkBudget(prompt: string, intent: PromptIntent): number {
-  if (intent === 'question') return InjectLimits.QUESTION_CHUNKS;
+function chunkBudget(prompt: string, intent: PromptIntent, contextChunks: number): number {
+  if (intent === 'question') return Math.min(InjectLimits.QUESTION_CHUNKS, contextChunks);
   return isTinyPrompt(prompt)
-    ? Math.max(2, Math.floor(InjectLimits.CONTEXT_CHUNKS / 2))
-    : InjectLimits.CONTEXT_CHUNKS;
+    ? Math.max(2, Math.floor(contextChunks / 2))
+    : contextChunks;
 }
 
 async function maybeDeltaReindex(
@@ -228,6 +236,9 @@ async function run(): Promise<void> {
   const session = sessionIdFromPayload(payload);
   const agent = extractAgentName(payload);
   const mode = injectMode();
+  const mem = applyMemoryLimits(workspace);
+  const inject: InjectPrefs = resolvePrefs(workspace).effective.inject;
+  const memoryTopK = mem.recallTopK;
 
   /** Emit + ledger the tokens this turn actually cost. */
   const record = (
@@ -270,7 +281,7 @@ async function run(): Promise<void> {
 
   if (!prompt) {
     // Do not invent lastPrompt — memory-capture will use symbol-only labels.
-    const body = noPromptFallbackBody(workspace, 'no user prompt in hook payload');
+    const body = noPromptFallbackBody(workspace, 'no user prompt in hook payload', memoryTopK);
     record(body, {
       dirty: 0,
       deltaMs: 0,
@@ -291,7 +302,7 @@ async function run(): Promise<void> {
 
   const intent = classifyIntent(prompt);
   if (intent === 'meta') {
-    const skipped = await emitNonCodeInject(workspace, prompt);
+    const skipped = await emitNonCodeInject(workspace, prompt, memoryTopK);
     record(skipped.body, {
       dirty: 0,
       deltaMs: 0,
@@ -325,7 +336,12 @@ async function run(): Promise<void> {
 
   const retrieveStarted = Date.now();
   const raced = await withTimeout(
-    contextForTask(workspace, prompt, chunkBudget(prompt, intent)),
+    contextForTask(
+      workspace,
+      prompt,
+      chunkBudget(prompt, intent, inject.contextChunks),
+      inject.tokenBudget,
+    ),
     IndexLimits.INJECT_RETRIEVE_BUDGET_MS,
   );
   const retrieveMs = Date.now() - retrieveStarted;
@@ -408,7 +424,7 @@ async function run(): Promise<void> {
     const pack = recencyPackLines(workspace);
     if (pack.length) lines.push(...pack, '');
   } else {
-    for (const hit of strongHits.slice(0, InjectLimits.MAX_HITS)) {
+    for (const hit of strongHits.slice(0, inject.maxHits)) {
       lines.push(`- **${hit.symbol ?? hit.kind ?? 'hit'}** — \`${hitLoc(hit)}\``);
       if (hit.snippet && snippetCap > 0) {
         lines.push('```', hit.snippet.slice(0, snippetCap), '```');
@@ -429,13 +445,14 @@ async function run(): Promise<void> {
     workspace,
     prompt,
     strongHits.map((h) => h.path),
+    memoryTopK,
   );
   lines.push(...formatMemoryBlock(memories));
 
   const credit =
     mode === 'off' || qualityHits === 0
       ? { windowVsFileTokens: 0, discoveryTokens: 0, paths: [] as string[] }
-      : creditLocateHits(workspace, strongHits.slice(0, InjectLimits.MAX_HITS));
+      : creditLocateHits(workspace, strongHits.slice(0, inject.maxHits));
 
   record(`${lines.join('\n')}\n`, {
     dirty: delta.dirty,

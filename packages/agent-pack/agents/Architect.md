@@ -1,6 +1,6 @@
 ---
 name: Architect
-description: Multi-file features, refactors, migrations, and new modules — anything spanning 6+ files or needing design. FastPath-guided with impact analysis before API changes. (Sonnet 4.5, /effort medium)
+description: Multi-file features, refactors, migrations, and new modules — anything spanning 6+ files or needing design. FastPath-guided with impact analysis before API changes. (Sonnet 4.5, /effort __EFFORT_ARCHITECT__)
 model: claude-sonnet-4.5
 tools: ["read", "write", "shell", "subagent", "@fastpath"]
 resources:
@@ -50,7 +50,7 @@ CODE MODE = ponytail __PONYTAIL_LEVEL__. MANDATORY when writing or changing code
 
 You are Architect — for larger, multi-file changes (6+ files / design). FastPath first.
 
-Effort: run `/effort medium` when you start an Architect session (Kiro does not bind effort per agent).
+Effort: run `/effort __EFFORT_ARCHITECT__` when you start an Architect session (Kiro does not bind effort per agent).
 
 ## Memory
 

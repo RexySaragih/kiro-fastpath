@@ -12,15 +12,45 @@ export type ConfigModeSettings = Partial<
   Record<'caveman' | 'ponytail', ConfigModeLevel>
 >;
 
+export type EffortLevel = 'low' | 'medium' | 'high';
+
+export interface ConfigPrefs {
+  inject?: Partial<{
+    maxHits: number;
+    contextChunks: number;
+    tokenBudget: number;
+  }>;
+  effortReminders?: Partial<{
+    scout: EffortLevel;
+    architect: EffortLevel;
+  }>;
+}
+
+export interface ConfigMemory {
+  sessionMax?: number;
+  pruneAfterDays?: number;
+  pruneScoreFloor?: number;
+  recencyHalfLifeDays?: number;
+  autoPrune?: boolean;
+  recallTopK?: number;
+  sessionInjectCount?: number;
+  sessionInjectChars?: number;
+  capture?: boolean;
+}
+
 export interface WorkspaceEntry {
   wiredAt: string;
   modes?: ConfigModeSettings;
+  prefs?: ConfigPrefs;
+  memory?: ConfigMemory;
 }
 
 export interface FastpathConfig {
   home: string;
   version: string;
   modes?: ConfigModeSettings;
+  prefs?: ConfigPrefs;
+  memory?: ConfigMemory;
   workspaces: Record<string, WorkspaceEntry>;
   lastWorkspace: string | null;
 }
@@ -80,6 +110,8 @@ export function loadConfig(): FastpathConfig {
       home: raw.home ?? home,
       version: raw.version ?? version,
       ...(raw.modes ? { modes: raw.modes } : {}),
+      ...(raw.prefs ? { prefs: raw.prefs } : {}),
+      ...(raw.memory ? { memory: raw.memory } : {}),
       workspaces: raw.workspaces ?? {},
       lastWorkspace: raw.lastWorkspace ?? null,
     };
@@ -109,6 +141,8 @@ export function recordWorkspaceWired(workspace: string): void {
   cfg.workspaces[abs] = {
     wiredAt: new Date().toISOString(),
     ...(prev?.modes ? { modes: prev.modes } : {}),
+    ...(prev?.prefs ? { prefs: prev.prefs } : {}),
+    ...(prev?.memory ? { memory: prev.memory } : {}),
   };
   cfg.lastWorkspace = abs;
   saveConfig(cfg);

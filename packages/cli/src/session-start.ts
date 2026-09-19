@@ -24,17 +24,20 @@ import {
 } from './hook-util.js';
 import { appendMetric, resetLedgerState } from './metrics.js';
 import { readTurnState } from './state.js';
+import { applyMemoryLimits } from './memory-settings.js';
 
 /** SessionStart is off the prompt hot path — allow a cold MiniLM load + git delta. */
 const WARM_BUDGET_MS = 15_000;
 const GIT_DELTA_BUDGET_MS = 8_000;
-const SESSION_MEMORY_COUNT = 3;
-const SESSION_MEMORY_LINE_CHARS = 200;
 
-function recentMemoryLines(workspace: string): string[] {
+function recentMemoryLines(
+  workspace: string,
+  count: number,
+  chars: number,
+): string[] {
   try {
-    return listMemories(workspace, SESSION_MEMORY_COUNT).map(
-      (m) => `- (${m.kind}) ${m.text.slice(0, SESSION_MEMORY_LINE_CHARS)}`,
+    return listMemories(workspace, count).map(
+      (m) => `- (${m.kind}) ${m.text.slice(0, chars)}`,
     );
   } catch {
     return [];
@@ -76,6 +79,7 @@ async function run(): Promise<void> {
   const workspace = workspaceFromPayload(payload);
   const sessionId = sessionIdFromPayload(payload);
   const started = Date.now();
+  const mem = applyMemoryLimits(workspace);
 
   // Warm both models here — a cold reranker load would otherwise blow the
   // 3s prompt-inject retrieve budget on the first real query.
@@ -115,7 +119,11 @@ async function run(): Promise<void> {
     lines.push(`Caught up ${gitDelta} git-changed file(s) at session start.`);
   }
 
-  const recent = recentMemoryLines(workspace);
+  const recent = recentMemoryLines(
+    workspace,
+    mem.sessionInjectCount,
+    mem.sessionInjectChars,
+  );
   if (recent.length) {
     lines.push('', 'Recent project memory:', ...recent);
   }
